@@ -19,3 +19,14 @@ Per slice, the defects each layer found, one line each. Layers: tests, hooks, CI
 - Tests: 0 defects (nothing to find yet: four tests on the parser).
 - Hooks: 0 defects in the product; proved by planted faults above.
 - Whole-codebase review and audit: not yet due.
+
+## Slice 1: accounts and the data file
+
+- Tests: `(12.50` parsed as 12.50 because `(` was taken for a currency symbol (Task 1, caught by the AC44 unreadable list before any code was committed).
+- Tests: `Store.open` leaked its connection when the busy timeout fired during migration; found as `PytestUnraisableExceptionWarning` under `filterwarnings = error` by the AC8 run before an unrelated test (Task 6).
+- Hooks: 0 defects in the product; the after-edit hook did not run because files were written through the shell (the hook watches Edit, Write and MultiEdit only), so the stop-hook checks were run by hand after each task instead.
+- CI: recorded on the pull request once it ran.
+- Mutation testing (first run, 610 mutants, 119 survived): real gaps were the help texts (as in slice 0), argparse error messages, the config's `data_dir` never exercised through `main`, `(12.50)` not distinguishing `s[1:-1]` from `s[1:-2]`, `-12.50-` accepted, an `Account`'s returned fields and scale unobserved, `created_at` in local time unobserved, the race in `forget_account` unobserved, and dead code after the fraction check. Equivalent: SQL keyword and identifier case (SQLite is case-insensitive), the Windows default path, the `autocommit=True` argument; these carry `pragma: no mutate` with the reason.
+- Fresh-context review (subagent, briefed from `docs/review-brief.md`, given the diff, `CLAUDE.md`, `docs/design.md` and `docs/brief.md`): 6 findings, 1 must-fix, all fixed test-first in one commit. Must-fix: `-value` and `scaleb` are `Decimal` arithmetic and round at the context's 28 digits, so a thirty-digit negative amount came back as `-1.000000000000000000000000000E+30` in the one module the project calls exact. Should-fix: every open took the write lock, so a reader waited on a writer and exited 3 against ADR 0005; account names kept whitespace and newlines; a data file that is not a database was a traceback; `forget` with standard input closed was a traceback; the handoff in the diff still described slice 0. Decisions it asked for, taken and recorded in the pull request: amounts bounded at SQLite's integer; names trimmed, control characters refused, internal spaces allowed; `account list` owes no CSV until slice 5; a newer data file is refused; AC5 carried to slice 2.
+- Gate break: no new gate was added this slice (no new rule check, hook or CI job), so none to break.
+- Whole-codebase review and audit: not yet due.

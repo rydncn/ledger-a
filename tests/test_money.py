@@ -21,6 +21,7 @@ READABLE = [
     ("1,234", "1234.00"),
     ("(1,234.56)", "-1234.56"),
     ("(0.07)", "-0.07"),
+    ("12.57-", "-12.57"),
     ("€0.01", "0.01"),
     (" 12.50 ", "12.50"),
     ("+12.50", "12.50"),
@@ -95,3 +96,7 @@ def test_ac44_thirty_digit_amounts_are_exact_and_the_data_file_bound_is_refused(
         to_minor(Decimal("92233720368547758.08"), 2)
     with pytest.raises(AmountError, match=r"^amount is too large to store$"):
         to_minor(Decimal("-" + big), 2)
+    with pytest.raises(AmountError, match=r"^amount is too large to store$"):
+        to_minor(Decimal("-92233720368547758.09"), 2)
+    with pytest.raises(AmountError, match=r"^amount is not a number$"):
+        to_minor(Decimal("NaN"), 2)

@@ -5,7 +5,7 @@ Where the work is, for the next session. The work, not the machine: tools come f
 ## Where we are
 
 - **Slice 0 (foundation)** merged as pull request [#1](https://github.com/rydncn/ledger-a/pull/1).
-- **Slice 1 (accounts and the data file)** is pull request [#5](https://github.com/rydncn/ledger-a/pull/5), branch `slice-1-accounts`, awaiting the owner's merge (ADR 0007). It delivers `config.py`, `money.py`, `store.py` and `tally account add|list|forget`; criteria AC1 to AC8, AC44, AC34 and AC35 for those commands. The plan with what each task observed is `docs/plans/001-accounts.md`.
+- **Slice 1 (accounts and the data file)** is pull request [#5](https://github.com/rydncn/ledger-a/pull/5), branch `slice-1-accounts`, awaiting the owner's merge (ADR 0007). It delivers `config.py`, `money.py`, `store.py` and `tally account add|list|forget`; criteria AC1 to AC4 and AC6 to AC8, AC44, AC34 and AC35 for those commands. **AC5 is carried to slice 2**: it needs `import`. The plan with what each task observed is `docs/plans/001-accounts.md`.
 - **Next: slice 2**, CSV import: AC9 to AC20, AC40, AC42, AC43. Read `docs/design.md` § Shape (the sign rule for money-in and money-out columns, which importer reads a file), § Lifecycles "An import run", and ADRs 0005 (locking) and 0008 (the fingerprint) before planning.
 
 ## How a slice goes
@@ -21,9 +21,11 @@ Where the work is, for the next session. The work, not the machine: tools come f
 
 - `Store.write()` is the one `BEGIN IMMEDIATE`; an import is one `with store.write() as connection:` holding the import record insert and every row's `INSERT ... ON CONFLICT (account_id, fingerprint) DO NOTHING` (ADR 0005). `LockedError` is already mapped to exit 3 and a failed `write()` rolls back everything (AC42's "nothing written"). `RefusedError` is exit 1; `ConfigError` is exit 2 and is raised before the data file opens.
 - The schema (`store.MIGRATIONS[0]`): `transactions(account_id, import_id, date, description, amount_minor, fingerprint)` with `UNIQUE (account_id, fingerprint)`, `imports(account_id, file, imported_at, added, duplicates, unreadable)`. A schema change is a new entry in `MIGRATIONS` (and a one-way door).
-- `money.parse_amount(text, decimal, thousands)` raises `AmountError("amount is not a number")`; `money.to_minor(amount, account.scale)` is what goes in the file. `Account.scale` comes from `money.scale_of`.
+- `money.parse_amount(text, decimal, thousands)` raises `AmountError("amount is not a number")`; `money.to_minor(amount, account.scale)` is what goes in the file and raises `AmountError` for more decimals than the scale or an amount outside SQLite's 64-bit integer; an importer reports either as that row's reason. Never put an amount through `Decimal` arithmetic (`-x`, `scaleb`, `+`): the context rounds at 28 digits; build text or tuples. `Account.scale` comes from `money.scale_of`.
 - `config.Config.layouts` is a `dict[str, dict[str, object]]` validated only for shape; AC43's checks of each layout's fields (the named columns, `date_format`, distinct separators) belong to the importer or a `layouts` validation in `config.py`, raised as `ConfigError` so they exit 2 before the data file opens.
 - `cli.py` takes the common `--config` and `--data-dir` through a parent parser on each leaf command; `--format` is per command (`account list` has `table` and `json`). `import` needs `--account`, `--layout`, the file, `--format json` (AC20) and `--verbose` (AC19).
+- `Store.open` no longer takes the write lock for a reader; an import's `store.write()` is the only lock it takes. A data file from a newer Tally is refused.
+- Account names are trimmed and refuse control characters (`cli.account_name`); reuse it for `--account`.
 - `store.account(name)` is the one query for "present"; `import` into an unknown account is `RefusedError` from it (AC5).
 
 ## Decisions taken that the next session should not reopen
@@ -38,4 +40,6 @@ Where the work is, for the next session. The work, not the machine: tools come f
 
 - Whether `account forget` should keep a tombstone so a later import of the same file into a re-created account is not silently "all new": decided no for slice 1 (the brief says delete everything); revisit if a reviewer raises it.
 - AC3's `report shows only savings' transactions` is proved by SQL counts until slice 5 has `report`.
+- Whether `account list` needs `--format csv` (AC35 says CSV "for the tabular ones"): decided not until slice 5's CSV writer exists; the reviewer asked for the call to be recorded.
+- This session ran to about 170,000 tokens added, past rule 17's budget, to finish the review fixes and records in one session rather than hand off mid-slice; slice 2 is bigger (twelve criteria) and should plan for two sessions, with the handoff written after the import's happy path.
 - After slice 3: the whole-codebase review. Before the final review: `/security-audit`.

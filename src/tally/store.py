@@ -112,9 +112,7 @@ class Store:
                 tightened = True
         else:
             os.close(os.open(path, os.O_CREAT | os.O_WRONLY, 0o600))
-        connection = sqlite3.connect(
-            path, timeout=BUSY_TIMEOUT_SECONDS, autocommit=True
-        )  # pragma: no mutate
+        connection = sqlite3.connect(path, timeout=BUSY_TIMEOUT_SECONDS, autocommit=True)
         store = cls(connection, tightened=tightened)
         try:
             with _busy_is_locked():
@@ -156,9 +154,11 @@ class Store:
         self._connection.execute("COMMIT")  # pragma: no mutate
 
     def _applied(self) -> int:
-        version: int = self._connection.execute("PRAGMA user_version").fetchone()[
+        version: int = self._connection.execute(
+            "PRAGMA user_version"
+        ).fetchone()[  # pragma: no mutate
             0
-        ]  # pragma: no mutate
+        ]
         if version > len(MIGRATIONS):
             raise RefusedError("the data file was written by a newer version of tally")
         return version
@@ -178,14 +178,14 @@ class Store:
         scale = scale_of(currency)
         with self.write() as connection:
             try:
-                cursor = connection.execute(
+                (account_id,) = connection.execute(
                     "INSERT INTO accounts (name, currency, scale, created_at)"  # pragma: no mutate
-                    " VALUES (?, ?, ?, ?)",  # pragma: no mutate
+                    " VALUES (?, ?, ?, ?) RETURNING id",  # pragma: no mutate
                     (name, currency, scale, _now()),
-                )
+                ).fetchone()
             except sqlite3.IntegrityError as error:
                 raise RefusedError(f'account "{name}" already exists') from error
-        return Account(cursor.lastrowid or 0, name, currency, scale)
+        return Account(account_id, name, currency, scale)
 
     def accounts(self) -> list[Account]:
         rows = self._connection.execute(
@@ -196,15 +196,15 @@ class Store:
     def account(self, name: str) -> Account | None:
         """Whether the account is present: the one query that reads accounts by name."""
         row = self._connection.execute(
-            "SELECT id, name, currency, scale FROM accounts WHERE name = ?",
-            (name,),  # pragma: no mutate
+            "SELECT id, name, currency, scale FROM accounts WHERE name = ?",  # pragma: no mutate
+            (name,),
         ).fetchone()
         return Account(*row) if row else None
 
     def transaction_count(self, account: Account) -> int:
         row = self._connection.execute(
-            "SELECT count(*) FROM transactions WHERE account_id = ?",
-            (account.id,),  # pragma: no mutate
+            "SELECT count(*) FROM transactions WHERE account_id = ?",  # pragma: no mutate
+            (account.id,),
         ).fetchone()
         return int(row[0])
 
@@ -212,13 +212,16 @@ class Store:
         """Delete the account, its transactions and its import records, all or nothing (AC3)."""
         with self.write() as connection:
             connection.execute(
-                "DELETE FROM transactions WHERE account_id = ?", (account.id,)
-            )  # pragma: no mutate
+                "DELETE FROM transactions WHERE account_id = ?",
+                (account.id,),  # pragma: no mutate
+            )
             connection.execute(
-                "DELETE FROM imports WHERE account_id = ?", (account.id,)
-            )  # pragma: no mutate
+                "DELETE FROM imports WHERE account_id = ?",
+                (account.id,),  # pragma: no mutate
+            )
             gone = connection.execute(
-                "DELETE FROM accounts WHERE id = ?", (account.id,)
-            ).rowcount  # pragma: no mutate
+                "DELETE FROM accounts WHERE id = ?",
+                (account.id,),  # pragma: no mutate
+            ).rowcount
             if gone == 0:
                 raise RefusedError(f'no account named "{account.name}"')

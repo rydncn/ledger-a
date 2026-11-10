@@ -79,11 +79,11 @@ def account_add(args: argparse.Namespace, store: Store) -> int:
 
 def account_list(args: argparse.Namespace, store: Store) -> int:
     accounts = store.accounts()
-    if args.format == "json":
-        print(json.dumps([{"name": a.name, "currency": a.currency} for a in accounts]))
-    else:
+    if args.format == "table":
         for a in accounts:
             print(f"{a.name} {a.currency}")
+    else:
+        print(json.dumps([{"name": a.name, "currency": a.currency} for a in accounts]))
     return EXIT_OK
 
 

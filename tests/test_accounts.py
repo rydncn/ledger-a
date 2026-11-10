@@ -191,6 +191,15 @@ def test_ac34_usage_errors_go_to_stderr_with_exit_2_and_touch_nothing(
     assert not (tmp_path / "tally.sqlite").exists()
 
 
+def test_ac34_account_alone_asks_for_an_action(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as raised:
+        main(["account"])
+    assert raised.value.code == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "the following arguments are required: <action>" in captured.err
+
+
 def test_ac34_a_configuration_error_is_exit_2_before_the_data_file_opens(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -288,7 +297,7 @@ def test_ac01_a_name_is_trimmed_and_may_hold_a_space(
         "",
     )
     code, out, err = run(
-        ["account", "forget", "my account", "--yes", "--data-dir", str(tmp_path)], capsys
+        ["account", "forget", " my account ", "--yes", "--data-dir", str(tmp_path)], capsys
     )
     assert (code, out, err) == (0, "", 'forgot account "my account" and its 0 transactions\n')
 

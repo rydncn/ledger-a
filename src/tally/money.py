@@ -67,12 +67,12 @@ def parse_amount(text: str, decimal: str, thousands: str) -> Decimal:
     leading digit. Anything else raises ``AmountError``.
     """
     s = text.strip()
-    negations = 0
-    if s.startswith("(") and s.endswith(")"):
+    bracketed = s.startswith("(") and s.endswith(")")
+    if bracketed:
         s = s[1:-1]
-        negations += 1
-    if "(" in s or ")" in s:
+    if "(" in s:
         raise AmountError(NOT_A_NUMBER)
+    negations = int(bracketed)
     if s and s[0] in _SIGNS:
         negations += s[0] == "-"
         s = s[1:]

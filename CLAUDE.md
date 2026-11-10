@@ -68,4 +68,7 @@ Decisions and the options rejected for them are in `docs/decisions/`. Read the r
 
 ## Lessons
 
+- Never put an amount through `Decimal` arithmetic (`-x`, `x.scaleb(n)`, `+`): the default context rounds at 28 significant digits silently. Build the `Decimal` from text or from a `(sign, digits, exponent)` tuple. Found by the slice 1 review.
+- Read before you lock: a command that only reads must not take `BEGIN IMMEDIATE` (a reader waiting on a writer and exiting 3 is against ADR 0005); check the schema version first and migrate only when it must change.
+- Write source through the Edit or Write tools, not the shell: the after-edit hook watches those tools only, and a session that writes files with heredocs gets no format or lint feedback until it runs the checks by hand.
 - mutmut only counts tests that run the mutated code in-process; a test that drives `tally` through `subprocess` kills no mutants. Drive behaviour through `main(argv)`.

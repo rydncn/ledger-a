@@ -44,13 +44,26 @@ def test_the_installed_command_runs() -> None:
     assert result.stdout.strip() == f"tally {__version__}"
 
 
+TOP_HELP = """\
+usage: tally [-h] [--version] <command> ...
+
+See where your money goes, from your bank's statement files.
+
+positional arguments:
+  <command>
+    account   add, list and forget accounts
+
+options:
+  -h, --help  show this help message and exit
+  --version   show program's version number and exit
+"""
+
+
 def test_help_names_the_command_and_what_it_is_for(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as raised:
         main(["--help"])
     assert raised.value.code == 0
-    out = capsys.readouterr().out
-    assert out.startswith("usage: tally [-h] [--version] <command> ...")
-    assert "\nSee where your money goes, from your bank's statement files.\n" in out
+    assert capsys.readouterr().out == TOP_HELP
 
 
 ACCOUNT_HELP = """\

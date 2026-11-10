@@ -1,6 +1,6 @@
 # 001. Accounts and the data file
 
-**Status:** active · **Satisfies:** AC1 to AC8, AC44, AC34 and AC35 for `account add|list|forget` · **Depends on:** 000
+**Status:** active · **Satisfies:** AC1 to AC4, AC6 to AC8, AC44, AC34 and AC35 for `account add|list|forget` (AC5 needs `import` and is carried to slice 2) · **Depends on:** 000
 
 The first behaviour: a configuration file is found and read, a `Money` value parses every amount form a statement uses, the SQLite data file exists with the user's permissions and the schema the later slices write into, and the user can add, list and forget accounts. `import` arrives in slice 2, so AC7 and AC8 are proved here with `account add`, the one writing command this slice has.
 
@@ -16,6 +16,7 @@ The first behaviour: a configuration file is found and read, a `Money` value par
 - **AC3 is proved as far as this slice can observe it:** `account list`, and the rows in the real data file counted by SQL (no `import` or `report` yet). The transactions in the test are inserted by SQL into the real file. Slices 2 and 5 re-prove it through `import` and `report`.
 - **`account list --format json`** is `[{"name": ..., "currency": ...}]`. CSV for `account list` waits for slice 5's CSV writer, where the formula escaping lives; `--format` here accepts `table` and `json`.
 - **The prompt for `forget` goes to standard error** (standard output is data) and reads one line from standard input; only `yes` continues. Its in-process test stands in a stdin that says it is a terminal, which is the environment seam ADR 0002 allows; the subprocess test proves the non-terminal case (exit 2).
+- **Taken after the fresh-context review:** amounts are never put through `Decimal` arithmetic (the context rounds at 28 digits), and `to_minor` refuses anything outside SQLite's 64-bit integer; a reader never takes the write lock (the schema version is read first, migration runs only when it must); a data file from a newer Tally, or one that is not a database, is refused in one line; account names are trimmed and may not hold control characters or line breaks, and may hold internal spaces (the machine-readable form is JSON, so the table's `name currency` need not be parseable); `account list` owes no CSV until slice 5's writer exists.
 - **`store.py` and `config.py` never print.** `Store.open` reports a tightened permission as a flag that `cli.py` turns into the message; errors are exceptions `cli.py` maps to exit codes: `ConfigError` 2, `Refused` 1, `Locked` 3, `OSError` on the data file 1.
 
 ## Tasks
@@ -57,6 +58,12 @@ Each task: the test first, seen to fail for the right reason, then the code, the
 - **Test:** `tests/test_data_file.py`: `TALLY_DATA_DIR` set to a fresh path and the console script run; two `account add` processes started together both exit 0, `list` shows both, `PRAGMA integrity_check` is `ok`; with a lock held from the test for 2 seconds, `account add` in a subprocess waits and exits 0; with a lock held past the timeout, `account add` in-process exits 3 with `another copy of tally is using the data file` on stderr and no account written.
 - **Code:** none expected beyond Task 3; whatever the tests find.
 - **Observed by:** 6 of 7 passed first time; `test_ac06_the_variable_...` failed with `PytestUnraisableExceptionWarning: Exception ignored while finalizing database connection`: `Store.open` leaked its connection when the busy timeout fired during migration (the AC8 run before it). Fixed by closing on failure; 7 pass, the AC8 test taking 10 s.
+
+### Task 7: What the fresh-context review and mutation testing found
+
+- **Test:** `test_ac44_thirty_digit_amounts_...`, `test_a_reader_never_waits_on_a_writer`, `test_a_data_file_from_a_newer_tally_is_refused`, `test_a_data_file_that_is_not_a_database_...`, the three control-character names in the AC34 table, `test_ac01_a_name_is_trimmed_...`, `test_ac03_without_yes_and_no_standard_input_...`, `test_ac06_the_configuration_places_the_data_file`, `test_each_account_help_screen_is_whole`, and the store-level tests for an account's scale and `created_at` and for a forget that lost a race.
+- **Code:** `money.py` (text and tuple, never arithmetic; the integer bound), `store.py` (`_applied`, migration only when needed, `DatabaseError` to `RefusedError`), `cli.py` (`account_name`, `sys.stdin is None`).
+- **Observed by:** 9 of the 10 new tests failed first (the config `data_dir` one passed: the behaviour existed, only its mutant survived); 88 pass after. The first mutation run: 610 mutants, 119 survived, of which the SQL-case and Windows-path ones are equivalent and now carry `pragma: no mutate`; the rest are killed by the tests above. Second run recorded in the pull request.
 
 ## Done when
 
