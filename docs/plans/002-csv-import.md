@@ -67,7 +67,7 @@ Each task: the test first, seen to fail for the right reason, then the code, the
 
 - **Test:** whatever they ask for.
 - **Code:** whatever they ask for.
-- **Observed by:**
+- **Observed by:** The fresh-context review (a subagent given the diff, `CLAUDE.md`, `docs/design.md`, `docs/brief.md` and the ADRs) returned 4 findings, all should-fix, each with a probe: a `delimiter` of `"\n"`, `"\r"` or `"` passed validation and the `csv` module raised a traceback under the lock; an account forgotten by a second copy between `store.account()` and the import was a raw `IntegrityError` (the foreign key); a NUL byte after the first kilobyte was stored and SQLite's text functions stop at it; a UTF-16 layout was accepted and every such file refused as `not a text file`. Seven tests were written first (3 delimiter cases, 2 encodings, the NUL past 1 KB, the forgotten account), seen to fail (the last with the reviewer's `sqlite3.IntegrityError: FOREIGN KEY constraint failed`), and pass after one commit. Rulings recorded in the pull request: the sample's quoting (for the owner), a decode error refusing the whole file (kept), a UTF-8 byte order mark under a Latin-1 layout saying only that the header lacks the column (kept). Mutation testing: first run failed to collect stats because the tests found `samples/` from `__file__` and mutmut runs them from `mutants/`; fixed in `tests/__init__.py`; the second run's result is in the pull request.
 
 ## Done when
 
