@@ -45,7 +45,7 @@ encoding = "latin-1"
 
 
 class Place:
-    """A test's own configuration file and data directory, with the two sample accounts."""
+    """A test's own configuration file and data directory, with the three sample accounts."""
 
     def __init__(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
         self.capsys = capsys
@@ -53,7 +53,7 @@ class Place:
         self.config.write_text(CONFIG, encoding="utf-8")
         self.data_dir = tmp_path / "data"
         self.data_file = self.data_dir / "tally.sqlite"
-        for name, currency in (("current", "GBP"), ("card", "EUR")):
+        for name, currency in (("current", "GBP"), ("card", "EUR"), ("savings", "GBP")):
             assert self.run("account", "add", name, "--currency", currency) == (0, "", "")
 
     def run(self, *argv: str) -> tuple[int, str, str]:
@@ -362,11 +362,6 @@ def test_ac34_usage_errors_from_the_parser_go_to_stderr_with_exit_2(
             ["import", "--account", "current", "--layout", "bank", str(SAMPLES / "savings.ofx")],
             2,
             "--layout is for CSV files, and this is an OFX file",
-        ),
-        (
-            ["import", "--account", "current", str(SAMPLES / "savings.ofx")],
-            1,
-            "OFX import is not available yet",
         ),
         (
             ["import", "--account", "current", "--layout", "bank", str(SAMPLES / "nosuch.csv")],

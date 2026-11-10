@@ -18,7 +18,7 @@ from pathlib import Path
 
 from tally import __version__
 from tally.config import Config, ConfigError, data_dir_for, load_config
-from tally.importers import NotAStatementError, kind
+from tally.importers import NotAStatementError, kind, ofx
 from tally.importers.csv_layout import Layout, read
 from tally.store import LockedError, RefusedError, Store
 
@@ -79,7 +79,7 @@ def build_parser() -> argparse.ArgumentParser:
     importing = commands.add_parser(
         "import", parents=[common], help="import a statement file into an account"
     )
-    importing.add_argument("file", help="a CSV statement (OFX arrives in slice 3)")
+    importing.add_argument("file", help="a CSV or OFX statement")
     importing.add_argument(
         "--account", required=True, type=account_name, help="the account the statement belongs to"
     )
@@ -177,15 +177,20 @@ def _import(args: argparse.Namespace, config: Config) -> int:
     if file_kind != "csv" and layout is not None:
         print("--layout is for CSV files, and this is an OFX file", file=sys.stderr)
         return EXIT_USAGE
-    if layout is None:
-        raise NotAStatementError("OFX import is not available yet")
     with open_store(args, config) as store:
         account = store.account(args.account)
         if account is None:
             raise RefusedError(f'no account named "{args.account}"')
-        summary = store.import_transactions(account, args.file, read(path, layout, account.scale))
+        if layout is None:
+            outcomes = ofx.read(path, account.currency, account.scale)
+        else:
+            outcomes = read(path, layout, account.scale)
+        summary = store.import_transactions(account, args.file, outcomes)
+    where = (
+        "line" if layout is not None else "transaction"
+    )  # what an unreadable row's number counts
     for unreadable in summary.unreadable[:UNREADABLE_LINES_SHOWN]:
-        print(f"line {unreadable.line}: {unreadable.reason}", file=sys.stderr)
+        print(f"{where} {unreadable.line}: {unreadable.reason}", file=sys.stderr)
     if len(summary.unreadable) > UNREADABLE_LINES_SHOWN:
         print(f"and {len(summary.unreadable) - UNREADABLE_LINES_SHOWN} more", file=sys.stderr)
     if args.format == "table":
@@ -201,9 +206,7 @@ def _import(args: argparse.Namespace, config: Config) -> int:
                     "file": args.file,
                     "added": summary.added,
                     "duplicates": summary.duplicates,
-                    "unreadable": [
-                        {"line": u.line, "reason": u.reason} for u in summary.unreadable
-                    ],
+                    "unreadable": [{where: u.line, "reason": u.reason} for u in summary.unreadable],
                 }
             )
         )
