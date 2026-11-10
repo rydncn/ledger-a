@@ -42,3 +42,24 @@ Beside the template's deny and ask rules: `Bash(uv run --no-build ruff *)`, `Bas
 - **mutmut's mutant names** are `package.module.x_<function>__mutmut_<n>` for functions and `package.module.<Class>.x<method>__mutmut_<n>` for methods, so a changed file `src/tally/cli.py` is the pattern `tally.cli.*`. `mutmut run` exits 0 with survivors; read `mutmut results --all true` and fail on `survived` yourself. `mutmut run` with a filter that matches nothing asserts and exits non-zero, which is the right behaviour for a gate.
 - **mutmut 3 config keys:** `source_paths` (not the deprecated `paths_to_mutate`) and the tests directory through pytest's own arguments; it copies `tests/`, `pyproject.toml` and `uv.lock` into `mutants/` itself.
 - **The pack's pieces need Node too:** the hooks and the rule check are Node scripts, which the playbook says; a Python-only machine needs Node installed for them. GitHub's runners have it.
+
+## Measuring a session
+
+Rule 17's budget counts what a session added since its first reply. The same arithmetic as `context-budget.mjs`, for the record in `docs/effort.md`, from the session's transcript (`~/.claude/projects/<project>/<session>.jsonl`):
+
+```python
+import json, sys
+start = last = None; peak = 0
+for line in open(sys.argv[1], encoding="utf-8"):
+    try: row = json.loads(line)
+    except ValueError: continue
+    if row.get("type") == "system" and row.get("subtype") == "compact_boundary":
+        start = None; continue
+    usage = (row.get("message") or {}).get("usage")
+    if row.get("type") != "assistant" or row.get("isSidechain") or not usage: continue
+    last = sum(usage.get(k, 0) for k in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens", "output_tokens"))
+    peak = max(peak, last); start = start if start is not None else last
+print(f"start {start:,} peak {peak:,} added at peak {peak - start:,}")
+```
+
+Not part of the pack proper; here because the trial needed it and nothing in the playbook gives the number after the fact.
