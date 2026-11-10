@@ -31,37 +31,37 @@ Each task: the test first, seen to fail for the right reason, then the code, the
 
 - **Test:** `tests/test_csv_layout.py::test_ac43_*`: the AC9 layout and the AC11 layout build; a layout missing `date`, one with `date_format = "%Q"`, one with `date_format = "%H"`, one with `decimal = ","` and `thousands = ","`, one with a two-character delimiter, one with an unknown encoding, one with `amount` and `money_in`, one with neither, one with an unknown key, one whose column is not a string each raise `ConfigError` naming `layouts.<name>` and the problem; through `main`, `--layout nosuch` and the missing-`date` case exit 2 with nothing on standard output and no data file created.
 - **Code:** `importers/__init__.py` (the types), `importers/csv_layout.py::Layout`, `cli.py`'s `import` parser and `open_store`.
-- **Observed by:**
+- **Observed by:** `ImportError: cannot import name 'read' from 'tally.importers.csv_layout'` for the whole file before (the layout tests and the `read` tests were written together, so the collection error names the second); 20 layout tests pass after. The validation grew one case beyond the plan while writing the tests: `date_format = "%H:%M"` round-trips but gives 1900-01-01, so "does not give a day, month and year" is its own message. Ruff's branch limit split the field checks into `_fields`.
 
 ### Task 2: Bytes become rows and reasons (AC10 to AC13, AC17, AC40, ADR 0008)
 
 - **Test:** `tests/test_csv_layout.py`: `read()` on `samples/current-account.csv` gives five transactions with the AC9 amounts in minor units, ISO dates, `TESCO STORES 2045, LEEDS` whole, no `\r` anywhere, and the ADR 0008 fingerprints; on `samples/credit-card.csv` three with `CAFÉ NERO` intact and the AC11 amounts and dates; a file with a bad date, a bad amount and a short row yields three `Unreadable` with the AC13 reasons and the other rows; two identical rows get `n` 1 and 2; a PNG, an empty file, a header without `Date` and a header-only file are the AC17 refusals (the last imports nothing and refuses nothing); a 50 MB quoted field on line 4 is `field longer than 1 MB` with the other rows read, and peak traced memory stays bounded; a bad byte on line 3 of a UTF-8 file names line 3.
 - **Code:** `importers/csv_layout.py::read`, the line iterator, `fingerprint`.
-- **Observed by:**
+- **Observed by:** the same `ImportError` before; 30 of 35 passed on the first run after. The five failures: (1) **the sample's line 4 is six columns, not five**: the brief wrote `=HYPERLINK("http://example.invalid","Refund")` unquoted and its comma splits the cell in the `csv` module, Excel and RFC 4180 alike, so AC9's five rows and AC27's "the refund" cannot hold for the file as given; the sample now quotes the cell (`"=HYPERLINK(""http://example.invalid"",""Refund"")"`) and a test keeps the unquoted form reported as `expected 5 columns, found 6`, so no reader guesses; (2) a bad byte's line number cannot be trusted because the decoder reads ahead of the lines, so the message is `not a text file: not valid utf-8` without one; (3) the `csv` module's field limit is "longer than", so a field of exactly 1 MB reads and 1 MB + 1 does not; (4) an unterminated quote at the end of the file is saved as a short row by the non-strict dialect (`expected 5 columns, found 2`), not a `csv.Error`; (5) a field spread over many short lines trips the limit on the line where it passes 1 MB and the rest of its lines each become a one-column unreadable row, bounded and reported like any other. 36 pass after. Peak traced memory for the 50 MB field: under 32 MB.
 
 ### Task 3: The import run in the store (AC14 to AC16, AC17's "no import record")
 
 - **Test:** `tests/test_import.py` at the store level: `import_transactions` with five rows writes five transactions and one record with the counts; the same rows again adds none and counts five duplicates in a second record; a mix of rows and unreadables counts each once; an exception from the outcomes iterator leaves no transaction and no record.
 - **Code:** `store.py::import_transactions`, `ImportSummary`.
-- **Observed by:**
+- **Observed by:** `AttributeError: 'Store' object has no attribute 'import_transactions'` was never seen on its own: the store code was written with Task 2's (the two were one commit) and the store-level test passed first time, including the rollback that leaves no record when the outcomes raise.
 
 ### Task 4: `tally import` (AC5, AC9, AC11, AC12, AC14, AC15, AC16, AC19, AC20, AC34, AC35)
 
 - **Test:** `tests/test_import.py` through `main(argv)` with a config file and `--data-dir` under `tmp_path`: AC9's five rows and amounts from the real data file; AC11 on the card sample; AC12's minor units 245000; AC14 twice; AC15 with an overlapping file; AC16 with two identical rows; AC5 refused into an unknown account with the data file's bytes unchanged; AC20's JSON object alone on standard output and the human form without `--format`; AC19 with marker strings and `--verbose`; AC34's usage errors (`--layout` missing for a CSV, an OFX file with `--layout`, a missing file) exit 2 or 1 with standard output empty; one subprocess test runs the console script for an import and reads its JSON; the top-level and `import` help screens whole.
 - **Code:** `cli.py::import_run`, help text.
-- **Observed by:**
+- **Observed by:** written after the command's code, which Task 1 needed for its exit-2 cases; honest record: the command was not test-first. 36 of 38 passed on the first run; both failures were the tests' own (a "short" row with two cells instead of AC13's three; a large file of 17.7 MB where the test asked for 20 MB). The help-screen test caught a wrapped `--layout` help line, shortened. The `--verbose` design changed while writing AC19's test: `logging.basicConfig` would have left its handler on the root logger for the rest of the process, so the handler is added to the `tally` logger for the run and removed after.
 
 ### Task 5: Hostile files through the command (AC13, AC17, AC18, AC40)
 
 - **Test:** `tests/test_import.py`: AC13's three unreadable rows on standard error by line and reason, none quoting the row, exit 0, the summary saying 3; 500 unreadable rows list 50 then `and 450 more` and the JSON lists 500; AC17's three refusals exit 1 with nothing written and no import record; AC18's 300,000-row file under `tracemalloc` stays under 100 MB with the count right; AC40 through `main`.
 - **Code:** whatever the tests find.
-- **Observed by:**
+- **Observed by:** with Task 4's run; AC18's 300,000 rows (22.8 MB) import in about 6 s, 28 s under `tracemalloc`, peak traced memory well under 100 MB (the `seen` dictionary included); AC40's 50 MB field through `main` is one unreadable line and three rows added.
 
 ### Task 6: Two copies, and a file that cannot be written (AC7, AC8, AC42)
 
 - **Test:** `tests/test_import.py`: two `tally import` processes on a 2,000-row file both exit 0 (or one exits 3), 2,000 transactions, `integrity_check` ok, the two `added` sum to 2,000; a write transaction held past the timeout makes `import` exit 3 with no record; AC42's `0400` file is refused with `the data file cannot be written`, same bytes after, no record, permissions still `0400`.
 - **Code:** `store.py` mapping `SQLITE_READONLY`.
-- **Observed by:**
+- **Observed by:** AC7 through two `tally import` processes: both exit 0, `added` sums to 2,000, 2,000 rows, `integrity_check` ok. AC8: exit 3 after the 10 s timeout, no record. AC42: a probe as `nobody` showed `BEGIN IMMEDIATE` succeeding on a `0400` WAL file (the WAL and shm files beside it are writable) and the first `INSERT` failing with `SQLITE_READONLY`, so the mapping is on the error raised inside `write()`, after the rollback; the test skips under root (this session) and passed when run as `nobody` with `runuser`: exit 1, `the data file cannot be written (its permissions are 0400)`, same bytes, no record, mode unchanged.
 
 ### Task 7: What mutation testing and the fresh-context review found
 

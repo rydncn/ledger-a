@@ -18,8 +18,8 @@ import pytest
 from tally.cli import main
 from tally.importers import Transaction, Unreadable
 from tally.store import Store
+from tests import SAMPLES
 
-SAMPLES = Path(__file__).resolve().parent.parent / "samples"
 HEADER = "Date,Description,Money Out,Money In,Balance\r\n"
 CONFIG = """\
 [layouts.bank]
@@ -312,36 +312,43 @@ def test_ac19_verbose_is_off_by_default_and_leaves_nothing_behind(
 @pytest.mark.parametrize(
     ("argv", "code", "named"),
     [
-        (["import", "samples/current-account.csv"], 2, "--account"),
+        (["import", str(SAMPLES / "current-account.csv")], 2, "--account"),
         (
-            ["import", "--account", "current", "--format", "xml", "samples/current-account.csv"],
+            [
+                "import",
+                "--account",
+                "current",
+                "--format",
+                "xml",
+                str(SAMPLES / "current-account.csv"),
+            ],
             2,
             "--format",
         ),
         (["import", "--account", "current"], 2, "file"),
         (["import", "--account", "current", "--layout", "bank"], 2, "file"),
         (
-            ["import", "--account", "current", "samples/current-account.csv"],
+            ["import", "--account", "current", str(SAMPLES / "current-account.csv")],
             2,
             "--layout is needed for a CSV file",
         ),
         (
-            ["import", "--account", "current", "--layout", "bank", "samples/savings.ofx"],
+            ["import", "--account", "current", "--layout", "bank", str(SAMPLES / "savings.ofx")],
             2,
             "--layout is for CSV files, and this is an OFX file",
         ),
         (
-            ["import", "--account", "current", "samples/savings.ofx"],
+            ["import", "--account", "current", str(SAMPLES / "savings.ofx")],
             1,
             "OFX import is not available yet",
         ),
         (
-            ["import", "--account", "current", "--layout", "bank", "samples/nosuch.csv"],
+            ["import", "--account", "current", "--layout", "bank", str(SAMPLES / "nosuch.csv")],
             1,
             "cannot read the statement file: No such file or directory",
         ),
         (
-            ["import", "--account", "current", "--layout", "bank", "samples"],
+            ["import", "--account", "current", "--layout", "bank", str(SAMPLES)],
             1,
             "cannot read the statement file: Is a directory",
         ),

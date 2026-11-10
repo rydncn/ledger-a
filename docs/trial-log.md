@@ -33,3 +33,16 @@ Per slice, the defects each layer found, one line each. Layers: tests, hooks, CI
 - Process: pull request #5 was taken out of draft and merged at 15:16 UTC with only the plan commit in it, before the agent marked it ready or recorded the review (ADR 0007). The code went to pull request #6 on the same branch.
 - Gate break: no new gate was added this slice (no new rule check, hook or CI job), so none to break.
 - Whole-codebase review and audit: not yet due.
+
+## Slice 2: CSV import
+
+- Tests: the brief's sample `current-account.csv` is not five-column CSV at line 4: `=HYPERLINK("http://example.invalid","Refund")` is unquoted and its comma splits the cell in the `csv` module, Excel and RFC 4180 alike, so AC9 (five rows) and AC27 ("the refund") could not hold for the file as given. Found by Task 2's first run; the sample now quotes the cell, the unquoted form is tested as `expected 5 columns, found 6`, and slice 0's review had not caught it.
+- Tests: a decoding error's line number was wrong (the first bad byte on line 3 was reported on line 1) because the text decoder reads ahead of the lines; the message now carries no line number.
+- Tests: the `csv` module's field limit is "longer than", not "at least"; a field of exactly 1 MB reads and 1 MB + 1 does not, which the boundary test pinned.
+- Tests: an unterminated quote at the end of the file is a short row under the non-strict default dialect, not a `csv.Error`; a quoted field spread over many short lines trips the limit on the line where it passes 1 MB and leaves its remaining lines as one-column rows. Both recorded as the behaviour, bounded and crash-free.
+- Tests (design probe before any code): a `0400` data file in WAL mode accepts `BEGIN IMMEDIATE` as a non-root user (the WAL and shm files beside it are writable) and refuses the first `INSERT` with `SQLITE_READONLY`; the AC42 mapping is therefore on the error raised inside the transaction. The session runs as root, for whom the file is writable regardless, so the test skips under root and was observed by running it as `nobody`.
+- Tests: `--verbose` through `logging.basicConfig` would have left a handler on the root logger for the rest of the process (every later in-process test would have logged to standard error); found while writing AC19's test, before the code ran; the handler is now added to the `tally` logger for the run and removed after.
+- Tests: the whole-screen help test caught `--layout`'s help wrapping onto a second line.
+- Tests: two defects in the tests themselves on the first run of the command-level file (a "short" row with two cells where AC13 says three; a 17.7 MB file where the test asked for 20 MB).
+- Hooks: the after-edit hook ran this slice (files written through Edit and Write) and reported import order, an unused `noqa`, ruff's branch and positional-argument limits, and over-long SQL lines straight after each edit; 0 defects in the product. It also fires after every Edit in a multi-edit response and reports the intermediate states (an import not yet used, a name not yet defined) as blocking errors, which is noise.
+- Gate break: no new gate was added this slice (no new rule check, hook or CI job), so none to break.

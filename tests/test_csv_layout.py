@@ -13,8 +13,8 @@ from tally.cli import main
 from tally.config import ConfigError
 from tally.importers import NotAStatementError, Transaction, Unreadable, kind
 from tally.importers.csv_layout import Layout, read
+from tests import SAMPLES
 
-SAMPLES = Path(__file__).resolve().parent.parent / "samples"
 HEADER = "Date,Description,Money Out,Money In,Balance\r\n"
 BANK: dict[str, str] = {
     "date": "Date",
