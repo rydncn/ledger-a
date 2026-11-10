@@ -5,7 +5,7 @@ Where the work is, for the next session. The work, not the machine: tools come f
 ## Where we are
 
 - **Slice 0 (foundation)** merged as pull request [#1](https://github.com/rydncn/ledger-a/pull/1).
-- **Slice 1 (accounts and the data file)** is pull request [#5](https://github.com/rydncn/ledger-a/pull/5), branch `slice-1-accounts`, awaiting the owner's merge (ADR 0007). It delivers `config.py`, `money.py`, `store.py` and `tally account add|list|forget`; criteria AC1 to AC4 and AC6 to AC8, AC44, AC34 and AC35 for those commands. **AC5 is carried to slice 2**: it needs `import`. The plan with what each task observed is `docs/plans/001-accounts.md`.
+- **Slice 1 (accounts and the data file)** is pull request [#6](https://github.com/rydncn/ledger-a/pull/6), branch `slice-1-accounts`, awaiting the owner's merge (ADR 0007). Pull request [#5](https://github.com/rydncn/ledger-a/pull/5) on the same branch was merged while still a draft with only the plan in it, so #6 carries the code. It delivers `config.py`, `money.py`, `store.py` and `tally account add|list|forget`; criteria AC1 to AC4 and AC6 to AC8, AC44, AC34 and AC35 for those commands. **AC5 is carried to slice 2**: it needs `import`. The plan with what each task observed is `docs/plans/001-accounts.md`.
 - **Next: slice 2**, CSV import: AC9 to AC20, AC40, AC42, AC43. Read `docs/design.md` § Shape (the sign rule for money-in and money-out columns, which importer reads a file), § Lifecycles "An import run", and ADRs 0005 (locking) and 0008 (the fingerprint) before planning.
 
 ## How a slice goes
