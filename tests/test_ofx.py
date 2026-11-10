@@ -223,8 +223,8 @@ def test_ac41_ten_thousand_nested_tags_are_refused_and_sixty_four_are_not(
 
 def test_ac41_repeated_tags_are_siblings_and_cost_bounded_memory(tmp_path: Path) -> None:
     many_leaves = "".join(f"<X{i}>v" for i in range(100_000))
-    body = (
-        "<OFX>" + "<A>" * 100_000 + "</A>" + statement(GOOD + many_leaves, *["<FITID>F1"] * 20_000)
+    body = statement(GOOD + many_leaves, *["<FITID>F1"] * 20_000).replace(
+        "<OFX>", "<OFX>" + "<A>" * 100_000 + "</A>", 1
     )
     path = ofx_file(tmp_path, SGML_HEADER + body)
     tracemalloc.start()
@@ -468,6 +468,9 @@ BILLION_LAUGHS = (
         (SGML_HEADER + "<OFX><STMTTRN><FITID", "not a statement: the file ends inside a tag"),
         (SGML_HEADER + "<OFX><!-- never closed >", "not a statement: the file ends inside a tag"),
         (XML_HEADER + "<OFX><?never closed >", "not a statement: the file ends inside a tag"),
+        (SGML_HEADER + statement(GOOD) + "<STMTTRN>" + GOOD, "not a statement: tags after </OFX>"),
+        (XML_HEADER + "<OFX></OFX><OFX></OFX>", "not a statement: tags after </OFX>"),
+        (SGML_HEADER + "<OFX><CURDEF>GBP<OFX><STMTTRN>", "not a statement: tags after </OFX>"),
         (
             SGML_HEADER + "<OFX><STMTRS><CURDEF>GBP</STMTRS><STMTRS><CURDEF>GBP</STMTRS></OFX>",
             "the file holds more than one statement",

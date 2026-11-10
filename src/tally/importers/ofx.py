@@ -210,6 +210,7 @@ class _Reader:
         self.pending: str | None = None  # an open tag not yet known to be a leaf or aggregate
         self.transaction: dict[str, str] | None = None  # the open STMTTRN's leaves
         self.started = False
+        self.ended = False  # </OFX> has been met: a real parser reads nothing after it
         self.statements = 0
         self.position = 0
         self.ready: list[Transaction | Unreadable] = []
@@ -261,6 +262,8 @@ class _Reader:
         name, self.pending = self.pending, None
         if name in self.stack:  # an aggregate never contains itself: the next STMTTRN
             self._close(name)
+        if self.ended:
+            raise NotAStatementError("not a statement: tags after </OFX>")
         self.stack.append(name)
         if len(self.stack) > MAX_DEPTH:
             raise NotAStatementError(f"not a statement: tags nested deeper than {MAX_DEPTH}")
@@ -284,6 +287,7 @@ class _Reader:
                 leaves = self.transaction or {}
                 self.ready.append(_outcome(self.position, leaves, self.currency, self.scale))
                 self.transaction = None
+            self.ended = top == "OFX"
             if top == name:
                 return
 
