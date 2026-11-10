@@ -14,7 +14,7 @@ import os
 import sqlite3
 import stat
 import time
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -22,6 +22,7 @@ from pathlib import Path
 from types import TracebackType
 from typing import Self
 
+from tally.importers import Transaction, Unreadable
 from tally.money import scale_of
 
 DATA_FILE = "tally.sqlite"
@@ -80,6 +81,15 @@ class Account:
     scale: int
 
 
+@dataclass(frozen=True)
+class ImportSummary:
+    """What one import run did: counted once each (design § Lifecycles)."""
+
+    added: int
+    duplicates: int
+    unreadable: list[Unreadable]
+
+
 @contextmanager
 def _busy_is_locked() -> Iterator[None]:
     try:
@@ -117,8 +127,9 @@ def _now() -> str:
 class Store:
     """An open data file. ``tightened`` says a wider permission was corrected on open."""
 
-    def __init__(self, connection: sqlite3.Connection, *, tightened: bool) -> None:
+    def __init__(self, connection: sqlite3.Connection, *, path: Path, tightened: bool) -> None:
         self._connection = connection
+        self._path = path
         self.tightened = tightened
 
     @classmethod
@@ -138,7 +149,7 @@ class Store:
             timeout=BUSY_TIMEOUT_SECONDS,
             autocommit=True,  # pragma: no mutate
         )
-        store = cls(connection, tightened=tightened)
+        store = cls(connection, path=path, tightened=tightened)
         try:
             with _busy_is_locked():
                 _switch_to_wal(connection)
@@ -173,8 +184,16 @@ class Store:
             self._connection.execute("BEGIN IMMEDIATE")  # pragma: no mutate
         try:
             yield self._connection
-        except BaseException:
+        except BaseException as error:
             self._connection.execute("ROLLBACK")  # pragma: no mutate
+            if (
+                isinstance(error, sqlite3.OperationalError)
+                and error.sqlite_errorcode == sqlite3.SQLITE_READONLY
+            ):
+                mode = stat.S_IMODE(self._path.stat().st_mode)
+                raise RefusedError(
+                    f"the data file cannot be written (its permissions are {mode:04o})"
+                ) from error
             raise
         self._connection.execute("COMMIT")  # pragma: no mutate
 
@@ -230,6 +249,52 @@ class Store:
             (account.id,),
         ).fetchone()
         return int(row[0])
+
+    def import_transactions(
+        self, account: Account, file: str, outcomes: Iterable[Transaction | Unreadable]
+    ) -> ImportSummary:
+        """One import run, all or nothing (ADR 0005): the record, each row, then its counts."""
+        added = duplicates = 0
+        unreadable: list[Unreadable] = []
+        with self.write() as connection:
+            try:
+                (import_id,) = connection.execute(
+                    "INSERT INTO imports (account_id, file, imported_at,"  # pragma: no mutate
+                    " added, duplicates, unreadable)"  # pragma: no mutate
+                    " VALUES (?, ?, ?, 0, 0, 0) RETURNING id",  # pragma: no mutate
+                    (account.id, file, _now()),
+                ).fetchone()
+            except sqlite3.IntegrityError as error:  # the foreign key: another copy forgot it
+                raise RefusedError(f'no account named "{account.name}"') from error
+            for outcome in outcomes:
+                if isinstance(outcome, Unreadable):
+                    unreadable.append(outcome)
+                    continue
+                inserted = connection.execute(
+                    "INSERT INTO transactions"  # pragma: no mutate
+                    " (account_id, import_id, date, description,"  # pragma: no mutate
+                    " amount_minor, fingerprint)"  # pragma: no mutate
+                    " VALUES (?, ?, ?, ?, ?, ?)"  # pragma: no mutate
+                    " ON CONFLICT (account_id, fingerprint) DO NOTHING",  # pragma: no mutate
+                    (
+                        account.id,
+                        import_id,
+                        outcome.date,
+                        outcome.description,
+                        outcome.amount_minor,
+                        outcome.fingerprint,
+                    ),
+                ).rowcount
+                if inserted:
+                    added += 1
+                else:
+                    duplicates += 1
+            connection.execute(
+                "UPDATE imports SET added = ?, duplicates = ?, unreadable = ?"  # pragma: no mutate
+                " WHERE id = ?",  # pragma: no mutate
+                (added, duplicates, len(unreadable), import_id),
+            )
+        return ImportSummary(added, duplicates, unreadable)
 
     def forget_account(self, account: Account) -> None:
         """Delete the account, its transactions and its import records, all or nothing (AC3)."""

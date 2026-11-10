@@ -72,3 +72,7 @@ Decisions and the options rejected for them are in `docs/decisions/`. Read the r
 - Read before you lock: a command that only reads must not take `BEGIN IMMEDIATE` (a reader waiting on a writer and exiting 3 is against ADR 0005); check the schema version first and migrate only when it must change.
 - Write source through the Edit or Write tools, not the shell: the after-edit hook watches those tools only, and a session that writes files with heredocs gets no format or lint feedback until it runs the checks by hand.
 - mutmut only counts tests that run the mutated code in-process; a test that drives `tally` through `subprocess` kills no mutants. Drive behaviour through `main(argv)`.
+- Run a sample file through the parser before writing a criterion that counts its rows: the brief's `current-account.csv` had an unquoted cell with a comma, six columns to every CSV reader, and the design counted five rows for two slices before a test ran it.
+- A `0400` data file in WAL mode still accepts `BEGIN IMMEDIATE`; `SQLITE_READONLY` arrives at the first `INSERT`, inside the transaction. And the cloud session is root, for whom the file is writable regardless: a permission test skips under root and is observed as another user (`runuser -u nobody`) or in CI.
+- A text decoder reads ahead of the lines, so a `UnicodeDecodeError` carries no trustworthy line number; say what the file is not, without one.
+- `logging.basicConfig` outlives the command in an in-process test suite: attach a handler for the run and remove it after.
