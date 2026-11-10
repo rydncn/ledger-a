@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sqlite3
 import stat
@@ -240,6 +241,11 @@ def test_ac13_a_flood_of_unreadable_rows_is_listed_to_fifty_and_counted(
     lines = err.splitlines()
     assert lines[:50] == [f"line {n}: date does not match %d/%m/%Y" for n in range(2, 52)]
     assert lines[50:] == ["and 450 more"]
+    fifty = bank_file(tmp_path, *["31/02/2026,X,1.00,,"] * 50, name="fifty.csv")
+    code, out, err = place.import_(fifty)
+    assert (code, out) == (0, "added 0, already there 0, unreadable 50\n")
+    assert err.count("\n") == 50
+    assert "more" not in err
     code, out, err = place.import_(flood, "--format", "json")
     assert code == 0
     assert len(json.loads(out)["unreadable"]) == 500
@@ -302,6 +308,8 @@ def test_ac19_verbose_is_off_by_default_and_leaves_nothing_behind(
         f"reading {SAMPLES / 'current-account.csv'} as utf-8-sig, 5 columns",
         "read 5 rows",
     ]
+    assert logging.getLogger("tally").handlers == []
+    assert logging.getLogger("tally").level == logging.NOTSET
     assert place.import_(SAMPLES / "current-account.csv") == (
         0,
         "added 0, already there 5, unreadable 0\n",
@@ -310,9 +318,9 @@ def test_ac19_verbose_is_off_by_default_and_leaves_nothing_behind(
 
 
 @pytest.mark.parametrize(
-    ("argv", "code", "named"),
+    ("argv", "named"),
     [
-        (["import", str(SAMPLES / "current-account.csv")], 2, "--account"),
+        (["import", str(SAMPLES / "current-account.csv")], "--account"),
         (
             [
                 "import",
@@ -322,11 +330,29 @@ def test_ac19_verbose_is_off_by_default_and_leaves_nothing_behind(
                 "xml",
                 str(SAMPLES / "current-account.csv"),
             ],
-            2,
             "--format",
         ),
-        (["import", "--account", "current"], 2, "file"),
-        (["import", "--account", "current", "--layout", "bank"], 2, "file"),
+        (["import", "--account", "current"], "file"),
+        (["import", "--account", "current", "--layout", "bank"], "file"),
+        (["import", "--account", "a\tb", "--layout", "bank", "x.csv"], "must not contain"),
+        (["import", "--account", " ", "--layout", "bank", "x.csv"], "must not be empty"),
+    ],
+)
+def test_ac34_usage_errors_from_the_parser_go_to_stderr_with_exit_2(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], argv: list[str], named: str
+) -> None:
+    place = Place(tmp_path, capsys)
+    with pytest.raises(SystemExit) as raised:
+        place.run(*argv)
+    captured = capsys.readouterr()
+    assert (raised.value.code, captured.out) == (2, "")
+    assert named in captured.err
+    assert place.imports() == []
+
+
+@pytest.mark.parametrize(
+    ("argv", "code", "message"),
+    [
         (
             ["import", "--account", "current", str(SAMPLES / "current-account.csv")],
             2,
@@ -354,18 +380,41 @@ def test_ac19_verbose_is_off_by_default_and_leaves_nothing_behind(
         ),
     ],
 )
-def test_ac34_usage_errors_and_refusals_go_to_stderr_and_write_nothing(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], argv: list[str], code: int, named: str
+def test_ac34_refusals_of_the_import_command_are_one_exact_line_and_write_nothing(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], argv: list[str], code: int, message: str
 ) -> None:
     place = Place(tmp_path, capsys)
-    try:
-        got = place.run(*argv)
-    except SystemExit as raised:
-        captured = capsys.readouterr()
-        got = (int(raised.code or 0), captured.out, captured.err)
-    assert (got[0], got[1]) == (code, "")
-    assert named in got[2]
+    assert place.run(*argv) == (code, "", message + "\n")
     assert place.imports() == []
+
+
+def test_the_account_name_is_trimmed_and_the_configuration_places_the_data_file(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = tmp_path / "conf" / "tally.toml"
+    config.parent.mkdir()
+    config.write_text('data_dir = "ledger"\n' + CONFIG, encoding="utf-8")
+
+    def run(*argv: str) -> tuple[int, str, str]:
+        code = main([*argv, "--config", str(config)])
+        captured = capsys.readouterr()
+        return code, captured.out, captured.err
+
+    assert run("account", "add", "current", "--currency", "GBP") == (0, "", "")
+    sample = str(SAMPLES / "current-account.csv")
+    assert run("import", "--account", " current ", "--layout", "bank", sample) == (
+        0,
+        "added 5, already there 0, unreadable 0\n",
+        "",
+    )
+    assert run("account", "list") == (0, "current GBP\n", "")
+    assert run("account", "forget", "current", "--yes") == (
+        0,
+        "",
+        'forgot account "current" and its 5 transactions\n',
+    )
+    assert (tmp_path / "conf" / "ledger" / "tally.sqlite").exists()
+    assert not (tmp_path / "data").exists()
 
 
 def test_ac18_a_very_large_file_is_streamed(
@@ -429,6 +478,31 @@ def test_ac42_an_import_that_cannot_write_the_data_file_writes_nothing(
     assert place.data_file.read_bytes() == before
     assert place.transactions() == []
     assert place.imports() == []
+
+
+def test_ac42_a_read_only_data_file_is_refused_with_its_permissions_and_nothing_written(
+    tmp_path: Path,
+) -> None:
+    """The permission itself cannot bite root, so the connection is opened read-only instead."""
+    with Store.open(tmp_path) as store:
+        account = store.add_account("current", "GBP")
+    data_file = tmp_path / "tally.sqlite"
+    data_file.chmod(0o400)
+    connection = sqlite3.connect(f"file:{data_file}?mode=ro", uri=True, autocommit=True, timeout=1)
+    with Store(connection, path=data_file, tightened=False) as store:
+        with pytest.raises(
+            RefusedError, match=r"^the data file cannot be written \(its permissions are 0400\)$"
+        ):
+            store.import_transactions(
+                account, "a.csv", [Transaction(2, "2026-10-01", "x", -100, "csv:1")]
+            )
+        assert store.transaction_count(account) == 0
+    assert stat.S_IMODE(data_file.stat().st_mode) == 0o400
+    with Store.open(tmp_path) as store:
+        assert store.transaction_count(account) == 0
+    connection = sqlite3.connect(data_file)
+    assert connection.execute("SELECT count(*) FROM imports").fetchone() == (0,)
+    connection.close()
 
 
 def test_the_store_writes_an_import_run_all_or_nothing(tmp_path: Path) -> None:

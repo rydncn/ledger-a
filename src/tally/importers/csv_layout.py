@@ -173,7 +173,9 @@ class _Lines:
 def _reason(error: Exception) -> str:
     if isinstance(error, _LineTooLongError) or "field limit" in str(error):
         return TOO_LONG
-    return str(error)  # the csv module's other messages name no content
+    # no mutate: unreachable with the default dialect and newline="", kept for the module's
+    # other errors, whose messages name no content
+    return str(error)  # pragma: no mutate
 
 
 class _Rows:

@@ -12,7 +12,7 @@ import pytest
 from tally.cli import main
 from tally.config import ConfigError
 from tally.importers import NotAStatementError, Transaction, Unreadable, kind
-from tally.importers.csv_layout import Layout, read
+from tally.importers.csv_layout import MAX_FIELD, MAX_LINE, Layout, read
 from tests import SAMPLES
 
 HEADER = "Date,Description,Money Out,Money In,Balance\r\n"
@@ -85,6 +85,14 @@ def test_ac43_the_sample_layouts_build_with_their_defaults() -> None:
         ({**CARD, "encoding": "latin-9x"}, 'unknown encoding "latin-9x"'),
         (
             {**BANK, "amount": "Amount"},
+            "amount cannot be named together with money_in or money_out",
+        ),
+        (
+            without({**BANK, "amount": "Amount"}, "money_out"),
+            "amount cannot be named together with money_in or money_out",
+        ),
+        (
+            without({**BANK, "amount": "Amount"}, "money_in"),
             "amount cannot be named together with money_in or money_out",
         ),
         (
@@ -383,3 +391,51 @@ def test_the_briefs_unquoted_formula_cell_is_six_columns_as_any_csv_reader_sees_
         tmp_path, '03/10/2026,=HYPERLINK("http://example.invalid","Refund"),,12.50,"4,420.33"'
     )
     assert read_bank(path) == [Unreadable(2, "expected 5 columns, found 6")]
+
+
+def test_a_file_that_vanished_between_the_first_bytes_and_the_read_is_refused(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(NotAStatementError, match=r"^cannot read the statement file: No such file"):
+        list(read(tmp_path / "gone.csv", Layout.from_config("bank", BANK), 2))
+
+
+def exact_line(ending: str) -> str:
+    """A row whose physical line is exactly MAX_LINE characters, terminator included."""
+    description = "d" * MAX_FIELD
+    rest = '01/10/2026,"",1.00,,' + ending
+    return f'01/10/2026,"{description}",1.00,,' + "b" * (MAX_LINE - MAX_FIELD - len(rest)) + ending
+
+
+@pytest.mark.parametrize("ending", ["\n", "\r\n", "\r"])
+def test_ac40_the_line_guard_is_exact_and_leaves_the_next_row_alone(
+    tmp_path: Path, ending: str
+) -> None:
+    path = tmp_path / "statement.csv"
+    path.write_text(
+        HEADER.replace("\r\n", ending)
+        + exact_line(ending)
+        + '02/10/2026,"'
+        + "x" * 3_000_000
+        + '",2.00,,'
+        + ending
+        + "03/10/2026,THIRD,3.00,,"
+        + ending
+        + "04/10/2026,LAST WITHOUT A LINE ENDING,4.00,,",
+        encoding="utf-8",
+        newline="",
+    )
+    outcomes = read_bank(path)
+    assert [(o.line, type(o).__name__) for o in outcomes] == [
+        (2, "Transaction"),
+        (3, "Unreadable"),
+        (4, "Transaction"),
+        (5, "Transaction"),
+    ]
+    assert isinstance(outcomes[0], Transaction)
+    assert len(outcomes[0].description) == MAX_FIELD
+    assert outcomes[1] == Unreadable(3, "field longer than 1 MB")
+    assert [o.description for o in outcomes[2:] if isinstance(o, Transaction)] == [
+        "THIRD",
+        "LAST WITHOUT A LINE ENDING",
+    ]
