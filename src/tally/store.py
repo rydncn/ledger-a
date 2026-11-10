@@ -112,10 +112,14 @@ class Store:
             os.close(os.open(path, os.O_CREAT | os.O_WRONLY, 0o600))
         connection = sqlite3.connect(path, timeout=BUSY_TIMEOUT_SECONDS, autocommit=True)
         store = cls(connection, tightened=tightened)
-        with _busy_is_locked():
-            connection.execute("PRAGMA journal_mode=WAL")
-            connection.execute("PRAGMA foreign_keys=ON")
-            store._migrate()
+        try:
+            with _busy_is_locked():
+                connection.execute("PRAGMA journal_mode=WAL")
+                connection.execute("PRAGMA foreign_keys=ON")
+                store._migrate()
+        except BaseException:
+            connection.close()
+            raise
         return store
 
     def close(self) -> None:
