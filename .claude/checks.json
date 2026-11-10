@@ -7,6 +7,6 @@
     { "run": ["uv", "run", "--no-build", "ruff", "format", "--check", "."] },
     { "run": ["uv", "run", "--no-build", "ruff", "check", "."] },
     { "run": ["uv", "run", "--no-build", "mypy"] },
-    { "run": ["uv", "run", "--no-build", "pytest", "-q", "-p", "no:randomly"] }
+    { "run": ["uv", "run", "--no-build", "pytest", "-q"] }
   ]
 }

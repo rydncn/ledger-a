@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -31,8 +32,10 @@ def test_no_command_is_a_usage_error_on_stderr(capsys: pytest.CaptureFixture[str
 
 
 def test_the_installed_command_runs() -> None:
+    tally = Path(sys.executable).with_name("tally")  # the console script beside this interpreter
+    assert tally.exists(), "install the project first: uv sync"
     result = subprocess.run(
-        [sys.executable, "-m", "tally.cli", "--version"],
+        [str(tally), "--version"],
         capture_output=True,
         text=True,
         check=False,

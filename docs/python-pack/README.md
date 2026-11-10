@@ -32,7 +32,7 @@
 
 ## Permissions to allow
 
-Beside the template's deny and ask rules: `Bash(uv run --no-build ruff *)`, `Bash(uv run --no-build mypy*)`, `Bash(uv run --no-build pytest*)`, `Bash(uv run --no-build pip-audit*)`, `Bash(uv run --no-build python scripts/*)`, `Bash(uv sync --locked --no-build*)`, `Bash(uv lock --check*)`, `Bash(node scripts/check-rules.js*)`. Ask before `uv publish`, `uv build` and `twine`.
+Beside the template's deny and ask rules: `Bash(uv run --no-build ruff *)`, `Bash(uv run --no-build mypy*)`, `Bash(uv run --no-build pytest*)`, `Bash(uv run --no-build pip-audit*)`, one `Bash(uv run --no-build python scripts/<name>.py*)` per script (not `scripts/*`, which would let the agent run any script it writes there unprompted), `Bash(uv sync --locked --no-build*)`, `Bash(uv lock --check*)`, `Bash(node scripts/check-rules.js*)`. Ask before `uv publish`, `uv build` and `twine`.
 
 ## What the trial learned
 

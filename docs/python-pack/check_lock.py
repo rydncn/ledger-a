@@ -16,16 +16,23 @@ from pathlib import Path
 REGISTRY = "https://pypi.org/simple"
 
 
+def project_name() -> str:
+    return str(tomllib.loads(Path("pyproject.toml").read_text("utf-8"))["project"]["name"])
+
+
 def main() -> int:
     lock = tomllib.loads(Path("uv.lock").read_text("utf-8"))
     packages = lock.get("package", [])
     problems: list[str] = []
     checked = 0
+    own = project_name()
     for package in packages:
         name = package["name"]
         source = package.get("source", {})
-        if source.get("editable") is not None or source.get("virtual") is not None:
-            continue  # the project itself
+        if name == own:
+            if "editable" not in source and "virtual" not in source:
+                problems.append(f"{name}: the project should be an editable or virtual source")
+            continue
         checked += 1
         if source.get("registry") != REGISTRY:
             problems.append(f"{name}: source is {source}, not the PyPI registry")

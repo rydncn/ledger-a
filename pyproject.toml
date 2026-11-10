@@ -58,7 +58,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "PLR0913", "ANN", "FBT", "PLC1901"]
+"tests/**" = ["S101", "S603", "PLR0913", "ANN", "FBT", "PLC1901"]  # S603: subprocess tests are the point (ADR 0002)
 "scripts/**" = ["T201", "S603", "S607"]  # build scripts print and run the tools
 "src/tally/cli.py" = ["T201"]  # the command line prints; everything else goes through it
 

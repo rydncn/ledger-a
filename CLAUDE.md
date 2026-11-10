@@ -30,6 +30,7 @@ At the start of a session, if the plugin check reports missing plugins, tell the
 
 `src/tally/`, standard library only (ADR 0001):
 
+- `config.py`: finds and reads `tally.toml` (`--config`, `$TALLY_CONFIG`, the user's config directory): `data_dir`, the CSV layouts and the rules, each validated with the table or rule named in the error. A configuration error is exit 2 before the data file opens.
 - `cli.py`: argument parsing and output. The only module that prints. Errors go to standard error with a non-zero exit code; colour only when standard output is a terminal and `NO_COLOR` is unset; every report has a plain, machine-readable form.
 - `money.py`: exact amounts as `Decimal` with a currency; parsing of the formats statements use (`1,234.56`, `1.234,56`, `(12.50)`, a sign or a separate money-in and money-out column).
 - `store.py`: the SQLite data file, created with permissions readable only by the user, opened under one lock so two copies running at once never corrupt it or count a transaction twice. Schema and migrations live here.
@@ -45,7 +46,7 @@ Decisions and the options rejected for them are in `docs/decisions/`. Read the r
 - **No network.** Checked by the `no-network` rule check over `src/` (the standard library's network modules and the common third-party clients) and by having no runtime dependencies at all.
 - **Nothing personal in output the user didn't ask for.** Error messages name the file, the line number and the reason, never the row's content; logging is off unless `--verbose`, and even then descriptions and amounts are not logged. Tested by the error-message tests, which import a hostile file and assert its descriptions appear nowhere in standard error.
 - **The data file is the user's alone.** Created with mode `0600` inside a directory created `0700`; the permission test fails when either is wider.
-- **Statement files are hostile input.** Every importer is tested with a byte order mark, Windows line endings, Latin-1, quoted fields with commas, formula-looking descriptions, a file that isn't a statement, and a very large file (bounded memory: streamed, never read whole). CSV export escapes any cell starting with `=`, `+`, `-`, `@`, a tab or a carriage return, so a spreadsheet never runs it.
+- **Statement files are hostile input.** Every importer is tested with a byte order mark, Windows line endings, Latin-1, quoted fields with commas, formula-looking descriptions, a file that isn't a statement, and a very large file (bounded memory: streamed, never read whole). CSV export escapes any text cell starting with `=`, `+`, `-`, `@`, a tab or a carriage return, so a spreadsheet never runs it; amount cells are plain decimals matching `-?\d+\.\d{2}` and are never prefixed.
 - **Two copies at once.** Every import runs in one `BEGIN IMMEDIATE` transaction with a busy timeout; the two-process test imports the same file from two processes at once and asserts the count is right.
 
 ## Conventions

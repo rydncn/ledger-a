@@ -27,7 +27,9 @@
       "Bash(uv run --no-build mypy*)",
       "Bash(uv run --no-build pytest*)",
       "Bash(uv run --no-build pip-audit*)",
-      "Bash(uv run --no-build python scripts/*)",
+      "Bash(uv run --no-build python scripts/audit.py*)",
+      "Bash(uv run --no-build python scripts/check_lock.py*)",
+      "Bash(uv run --no-build python scripts/mutation_changed.py*)",
       "Bash(uv sync --locked --no-build*)",
       "Bash(uv lock --check*)",
       "Bash(node scripts/check-rules.js*)"

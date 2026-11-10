@@ -49,7 +49,8 @@ tally.toml (user-written)        statement files (bank-written, hostile)
 - **Data directory:** `--data-dir`, else `$TALLY_DATA_DIR`, else `~/.local/share/tally/` (`%LOCALAPPDATA%\tally\` on Windows); created `0700`, data file `tally.sqlite` created `0600`.
 - **Boundaries in tests (rule 16):** everything is real: the data file, the files, the config. Nothing is faked; the only seam is `argv`, the environment and the current directory, which each test owns.
 - **Exit codes:** 0 done; 1 refused or the data said no (unknown account, not a statement, currency mismatch); 2 usage or configuration error; 3 another copy of Tally holds the data file.
-- **Money**: `Money(amount: Decimal, currency: str)`; parsing accepts `1,234.56`, `1.234,56`, `(12.50)`, `-12.50`, `12.50-`, `£12.50`, `12.50 CR`/`DR` is not accepted (reported as unreadable), per the layout's separators. Amount sign: a transaction's amount is money in minus money out; a negative value in a money-out column is money coming back.
+- **Money**: `Money(amount: Decimal, currency: str)`; parsing accepts `1,234.56`, `1.234,56`, `(12.50)`, `-12.50`, `12.50-`, `£12.50` and a sign after a currency symbol, per the layout's separators; `12.50 CR`, `12.50 DR`, `1,2,3.4` and a bare separator are unreadable (AC44). Amount sign: in a single signed `amount` column, parentheses and a leading or trailing minus mean negative. In separate `money_in` and `money_out` columns the column decides the sign and the value's magnitude is what counts: banks write debits as `(3.40)` or `-3.40` in a money-out column, and the sample's own balance column shows `(3.40)` under Money Out is 3.40 out. A transaction's amount is money in minus money out.
+- **Which importer reads a file** is decided from its first bytes, never its name: `OFXHEADER:` means OFX SGML; `<?xml` or `<?OFX` or `<OFX>` (after an optional byte order mark) means OFX XML; anything else is CSV and needs `--layout`. `--layout` with an OFX file is a usage error (exit 2).
 
 ## Lifecycles
 
@@ -67,9 +68,9 @@ An account's currency is fixed at `add`. An import whose file states another cur
 | State | What moves it | Next |
 | --- | --- | --- |
 | started | the file opens and the first bytes read as a statement | reading |
-| started | the file is not a statement, or the account or layout is unknown, or another copy holds the data file past the timeout | failed (nothing written; exit 1 or 3) |
+| started | the layout is unknown or invalid (exit 2), the account is unknown or the file is not a statement (exit 1), or another copy holds the data file past the timeout (exit 3) | failed (nothing written) |
 | reading | each row becomes added, already there, or unreadable, inside one `BEGIN IMMEDIATE` | committed |
-| reading | any error other than a row's own (disk, a broken file half way) | failed (rolled back; nothing written) |
+| reading | any error other than a row's own: the data file cannot be written, the disk fails, the process is interrupted | failed (rolled back; nothing written: AC42) |
 | committed | counts printed; the import record written in the same transaction | done |
 
 A row's outcome is one of `added`, `duplicate`, `unreadable(line, reason)`; the three are decided in one function per importer and counted once. A failed import writes nothing, including the import record (AC17, AC8).
@@ -138,7 +139,7 @@ Each becomes a test named `test_acNN_...`. "Refused" always means: a message on 
 #### AC9. A layout describes a bank's CSV once
 - **Given** `[layouts.bank]` with `date = "Date"`, `description = "Description"`, `money_out = "Money Out"`, `money_in = "Money In"`, `date_format = "%d/%m/%Y"`, `decimal = "."`, `thousands = ","`
 - **When** `tally import --account current --layout bank samples/current-account.csv`
-- **Then** 5 added, 0 already there, 0 unreadable, and the amounts are −42.17, +2450.00, +12.50, +3.40, −156.00 on the dates 2026-10-01 to 2026-10-05
+- **Then** 5 added, 0 already there, 0 unreadable, and the amounts are −42.17, +2450.00, +12.50, −3.40, −156.00 on the dates 2026-10-01 to 2026-10-05 (the `(3.40)` under Money Out is 3.40 out, as the balance column confirms)
 
 #### AC10. A byte order mark and Windows line endings are not data
 - **Given** the sample above (UTF-8 with a BOM, CRLF)
@@ -158,7 +159,7 @@ Each becomes a test named `test_acNN_...`. "Refused" always means: a message on 
 #### AC13. Rows that cannot be read are reported by line and reason, the rest imported
 - **Given** a file whose line 3 has a date `31/02/2026`, line 4 an amount `twelve`, and line 5 too few columns
 - **When** imported
-- **Then** the other rows are added; standard error lists `line 3: date does not match %d/%m/%Y`, `line 4: amount is not a number`, `line 5: expected 5 columns, found 3`, none quoting the row's content; exit 0; the summary says 3 unreadable
+- **Then** the other rows are added; standard error lists `line 3: date does not match %d/%m/%Y`, `line 4: amount is not a number`, `line 5: expected 5 columns, found 3`, none quoting the row's content; exit 0; the summary says 3 unreadable. With 500 unreadable rows, standard error lists the first 50 and then `and 450 more`; the JSON form (AC20) lists them all
 
 #### AC14. The same file twice adds nothing
 - **Given** the current-account sample imported
@@ -230,7 +231,7 @@ Each becomes a test named `test_acNN_...`. "Refused" always means: a message on 
 #### AC39. An OFX XML file with a DOCTYPE or entities is refused
 - **Given** an XML OFX file with a `<!DOCTYPE` declaration (external entity, or a billion-laughs expansion)
 - **When** imported
-- **Then** refused: `the file declares a DOCTYPE, which statements never do`, exit 1, no file or network access attempted (observed: the entity's `SYSTEM` path is a sentinel file whose access time is unchanged)
+- **Then** refused: `the file declares a DOCTYPE, which statements never do`, exit 1, by a check on the first bytes before any XML parser runs (observed: the message is the DOCTYPE one, not a parse or file error, and the entity's `SYSTEM` path names a FIFO the test created, which would block the test if anything opened it)
 
 #### AC41. Tags nested or repeated beyond reason are refused
 - **Given** an SGML OFX file with 10,000 nested opening tags, and one with `STMTTRN` elements missing `FITID` entirely
@@ -240,9 +241,9 @@ Each becomes a test named `test_acNN_...`. "Refused" always means: a message on 
 ### Categorisation
 
 #### AC26. Rules match on description, amount and account; first match wins
-- **Given** rules in order: `{name="Groceries", description_contains="TESCO"}`, `{name="Travel", description_matches="^TFL"}`, `{name="Big", amount_below="-100.00"}`, `{name="Card payments", account="card", amount_above="0"}`
+- **Given** rules in order: `{name="Groceries", description_contains="TESCO"}`, `{name="Travel", description_matches="^TFL"}`, `{name="Big", account="current", amount_below="-100.00"}`, `{name="Card payments", account="card", amount_above="0"}`
 - **When** `tally report --month 2026-10 --format json` on the samples
-- **Then** TESCO is `Groceries`, TFL is `Travel`, COUNCIL TAX is `Big`, the card's `PAYMENT RECEIVED` is `Card payments`, and a TESCO row for −150.00 is `Groceries`, not `Big`
+- **Then** TESCO is `Groceries`, TFL is `Travel`, COUNCIL TAX is `Big`, the card's `PAYMENT RECEIVED` is `Card payments`, a TESCO row for −150.00 is `Groceries`, not `Big`, and the savings `TRANSFER TO CURRENT` (−500.00) is not `Big` because the rule names another account
 
 #### AC27. The user can see what no rule matched
 - **Given** the rules above
@@ -306,18 +307,35 @@ Each becomes a test named `test_acNN_...`. "Refused" always means: a message on 
 - **When** shown by `report`, `uncategorised` or `explain`
 - **Then** each control character is shown as `␛`-style replacement (`␛`) or `?`, and the raw byte is absent from standard output; the JSON form carries the original, escaped as JSON requires
 
+### Added after the slice 0 review
+
+#### AC42. An import that fails part way writes nothing
+- **Given** account `current` and a data file made read-only (`0400`) after the account exists
+- **When** `tally import --account current --layout bank samples/current-account.csv`
+- **Then** refused: `the data file cannot be written`, exit 1; the data file is unchanged (same bytes), no transaction and no import record exists; the file's permissions are reported, not changed
+
+#### AC43. An unknown or invalid layout is a configuration error
+- **Given** `--layout nosuch`, and in another case `[layouts.bank]` missing `date`, and in another `date_format = "%Q"`, and in another `decimal = ","` with `thousands = ","`
+- **When** `tally import ...` with that layout
+- **Then** refused with the layout's name and the problem (`layouts.bank: no "date" column named`), exit 2, the data file not opened
+
+#### AC44. Amounts in every form a statement uses, exactly
+- **Given** a layout with `decimal = "."` and `thousands = ","`
+- **When** these amount texts are read: `1,234.56`, `(12.50)`, `-12.50`, `12.50-`, `£12.50`, `-£12.50`, `£-12.50`, `0`, `.5`, `1,234`
+- **Then** they are 1234.56, −12.50, −12.50, −12.50, 12.50, −12.50, −12.50, 0.00, 0.50, 1234.00 as exact decimals; and `12.50 CR`, `12.50 DR`, `1,2,3.4`, `12.5.0`, `,`, `--12.50`, `(12.50` and an empty string are unreadable with the reason `amount is not a number`. With `decimal = ","` and `thousands = "."`, `1.234,56` is 1234.56 and `1,234.56` is unreadable
+
 ## Three checks of the criteria
 
-**From the rules (`CLAUDE.md` security boundaries):** money is exact: AC30 and the rule check; no network: the rule check and ADR 1 (no runtime dependency), with AC39 covering the one parser that could fetch; nothing personal in messages: AC19 and AC34; the data file is the user's alone: AC1 and AC6; statement files are hostile: AC10 to AC13, AC17, AC18, AC25, AC32, AC38 to AC41; two copies at once: AC7 and AC8. No boundary is without a criterion.
+**From the rules (`CLAUDE.md` security boundaries):** money is exact: AC30 and the rule check; no network: the rule check and ADR 1 (no runtime dependency), with AC39 covering the one parser that could fetch; nothing personal in messages: AC19 and AC34; the data file is the user's alone: AC1 and AC6; statement files are hostile: AC10 to AC13, AC17, AC18, AC25, AC32, AC38 to AC41; two copies at once: AC7 and AC8; a failed import writes nothing: AC42; configuration errors stop before the data file opens: AC29 and AC43; money parsing: AC44. No boundary is without a criterion.
 
 **The four questions, asked of the design:**
 
 - *What does another parser do with this input?* A spreadsheet opening the export (AC32: formula prefix on text cells, amounts constrained to a number shape). The terminal (AC38: control characters). SQLite (every statement is parameterised; a review item, since no grep proves it). The XML parser (AC39: no DOCTYPE, so no entity expansion or external fetch). Python's `csv` module (AC12, AC40: quoted fields and a field-size limit so one field can't take all memory). The regex engine on the user's own patterns (AC29: compiled once, errors named; a pathological pattern costs the user their own CPU, accepted). `strptime` (AC13: `31/02/2026` is unreadable, not February 31st normalised). The date in a report's own `--month` (AC37).
 - *What happens when two of these run at once?* Two imports (AC7). A copy that cannot get in (AC8). A report during an import reads the committed state (WAL). Two `account add` of the same name: the `UNIQUE` constraint, so one is refused (AC2).
-- *What does a flood cost?* A huge file: streamed, memory bounded (AC18). One huge field (AC40). A deeply nested OFX (AC41). Rows that are all unreadable: each costs one message, and the summary is bounded; standard error lists at most 50 line reasons and then a count (part of AC13's shape). A rules file with thousands of rules: linear per transaction, accepted.
+- *What does a flood cost?* A huge file: streamed, memory bounded (AC18). One huge field (AC40). A deeply nested OFX (AC41). Rows that are all unreadable: each costs one message, and the summary is bounded; standard error lists at most 50 line reasons and then a count (AC13). A rules file with thousands of rules: linear per transaction, accepted.
 - *What can one account do to a result other people rely on?* Nothing shared exists: one user, one machine, no network. The analogue inside Tally is one account's figures leaking into another's: currencies are never summed across accounts (AC36), and `forget` removes exactly one account's rows (AC3).
 
-**From the lifecycles:** every refused move is a criterion: add a taken name (AC2), import into or forget an absent account (AC5, AC4), import a wrong currency (AC24), a failed import writes nothing (AC17, AC8), a second copy waits then stops (AC8), a category is derived in one place (AC26 to AC28).
+**From the lifecycles:** every refused move is a criterion: add a taken name (AC2), import into or forget an absent account (AC5, AC4), import a wrong currency (AC24), a failed import writes nothing (AC17, AC8, AC42), an unknown layout is a configuration error (AC43), a second copy waits then stops (AC8), a category is derived in one place (AC26 to AC28).
 
 ## Test tiers
 
@@ -328,8 +346,8 @@ Tier 1 only, in-process against the real data file and real files, with one subp
 | Slice | Delivers | Criteria |
 | --- | --- | --- |
 | 0 | Foundation: this design, the Python pack, CI, hooks, samples | none (gates proved by breaking) |
-| 1 | Accounts and the data file: config loading, `account add/list/forget`, store with permissions and locking, `Money` | AC1 to AC8, AC34 (for these), AC35 (`account list`) |
-| 2 | CSV import with layouts, dedupe, unreadable rows, the import summary | AC9 to AC20, AC40 |
+| 1 | Accounts and the data file: config loading, `account add/list/forget`, store with permissions and locking, `Money` | AC1 to AC8, AC44, AC34 (for these), AC35 (`account list`) |
+| 2 | CSV import with layouts, dedupe, unreadable rows, the import summary | AC9 to AC20, AC40, AC42, AC43 |
 | 3 | OFX import, SGML and XML | AC21 to AC25, AC39, AC41 |
 | 4 | Categorisation: rules, `uncategorised`, `explain` | AC26 to AC29, AC38 |
 | 5 | Reports: `report`, `payees`, CSV and JSON export, colour | AC30 to AC33, AC35 to AC37 |
