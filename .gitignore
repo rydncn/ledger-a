@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+dist/
+build/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+mutants/
+.mutmut-cache
+
+# Secrets and local data (rule 14)
+.env
+.env.*
+!.env.example
+*.sqlite
+*.sqlite3
+*.db
+
+# Personal agent settings; the shared ones stay tracked
+/.claude/*
+!/.claude/settings.json
+!/.claude/checks.json
+!/.claude/hooks/
+!/.claude/rules/

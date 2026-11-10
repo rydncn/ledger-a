@@ -1,0 +1,24 @@
+#!/bin/sh
+# Git pre-push hook for a uv-managed Python project: format, lint and type
+# check before anything leaves the machine, whichever agent or person pushes.
+# The Claude Code hooks cover Claude's own loop; this covers everyone else.
+#
+# Installed by scripts/setup-dev.sh (git config core.hooksPath .claude/hooks).
+# CI runs the same checks; `git push --no-verify` skips this, so CI is the gate.
+
+set -eu
+
+[ -f pyproject.toml ] || exit 0
+command -v uv >/dev/null 2>&1 || { echo "pre-push: uv is not installed, so nothing was checked locally; CI will." >&2; exit 0; }
+
+run() {
+  echo "pre-push: $*" >&2
+  if ! "$@"; then
+    echo "pre-push: \`$*\` failed, so nothing was pushed. Fix it and push again." >&2
+    exit 1
+  fi
+}
+
+run uv run --no-build ruff format --check .
+run uv run --no-build ruff check .
+run uv run --no-build mypy

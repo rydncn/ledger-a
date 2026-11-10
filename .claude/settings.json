@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.local)",
+      "Read(./.env.*.local)",
+      "Read(./secrets/**)"
+    ],
+    "ask": [
+      "Bash(git push)",
+      "Bash(git push*main*)",
+      "Bash(git push*master*)",
+      "Bash(git push*--force*)",
+      "Bash(git push* -f*)",
+      "Bash(git push* +*)",
+      "Bash(git push*--delete*)",
+      "Bash(git push*--mirror*)",
+      "Bash(gh pr merge*)",
+      "Bash(gh release *)",
+      "Bash(uv publish*)",
+      "Bash(uv build*)",
+      "Bash(twine *)"
+    ],
+    "allow": [
+      "Bash(uv run --no-build ruff *)",
+      "Bash(uv run --no-build mypy*)",
+      "Bash(uv run --no-build pytest*)",
+      "Bash(uv run --no-build pip-audit*)",
+      "Bash(uv run --no-build python scripts/audit.py*)",
+      "Bash(uv run --no-build python scripts/check_lock.py*)",
+      "Bash(uv run --no-build python scripts/mutation_changed.py*)",
+      "Bash(uv sync --locked --no-build*)",
+      "Bash(uv lock --check*)",
+      "Bash(node scripts/check-rules.js*)"
+    ]
+  },
+  "env": {
+    "UV_NO_BUILD": "1"
+  },
+  "extraKnownMarketplaces": {
+    "ai-playbook": {
+      "source": { "source": "github", "repo": "rydncn/ai-playbook" }
+    }
+  },
+  "enabledPlugins": {
+    "playbook@ai-playbook": true,
+    "superpowers@ai-playbook": true,
+    "pocock-extras@ai-playbook": true,
+    "ponytail@ai-playbook": true,
+    "security-audit@ai-playbook": true
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/check-plugins.mjs"],
+            "timeout": 45
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/context-budget.mjs"],
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/after-edit.mjs"],
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/before-stop.mjs"],
+            "timeout": 300
+          }
+        ]
+      }
+    ]
+  }
+}

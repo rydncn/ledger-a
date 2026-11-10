@@ -1,0 +1,14 @@
+# Agent configuration is code (rule 18 in the ai-playbook): hooks run on
+# every session, settings change what the agent may do without asking, and
+# CLAUDE.md is instructions. On this one-person repository GitHub counts the
+# owner as satisfied without a review, so the CI step "Agent configuration
+# changes" and the owner's reading of each flagged file carry the rule; this
+# file records who that is.
+
+/.claude/                @rydncn
+/.mcp.json               @rydncn
+CLAUDE.md                @rydncn
+AGENTS.md                @rydncn
+/.github/workflows/      @rydncn
+/.github/CODEOWNERS      @rydncn
+/.devcontainer/          @rydncn
