@@ -48,7 +48,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"tally {__version__}")
     commands = parser.add_subparsers(dest="command", metavar="<command>")
 
-    common = argparse.ArgumentParser(add_help=False)
+    common = argparse.ArgumentParser(add_help=False)  # pragma: no mutate (None is False here)
     common.add_argument("--config", metavar="FILE", help="the tally.toml to read")
     common.add_argument("--data-dir", metavar="DIR", help="where the data file lives")
 

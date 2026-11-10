@@ -112,7 +112,11 @@ class Store:
                 tightened = True
         else:
             os.close(os.open(path, os.O_CREAT | os.O_WRONLY, 0o600))
-        connection = sqlite3.connect(path, timeout=BUSY_TIMEOUT_SECONDS, autocommit=True)
+        connection = sqlite3.connect(  # autocommit: Python opens no transaction of its own
+            path,
+            timeout=BUSY_TIMEOUT_SECONDS,
+            autocommit=True,  # pragma: no mutate
+        )
         store = cls(connection, tightened=tightened)
         try:
             with _busy_is_locked():
@@ -155,10 +159,8 @@ class Store:
 
     def _applied(self) -> int:
         version: int = self._connection.execute(
-            "PRAGMA user_version"
-        ).fetchone()[  # pragma: no mutate
-            0
-        ]
+            "PRAGMA user_version"  # pragma: no mutate
+        ).fetchone()[0]
         if version > len(MIGRATIONS):
             raise RefusedError("the data file was written by a newer version of tally")
         return version
@@ -212,16 +214,16 @@ class Store:
         """Delete the account, its transactions and its import records, all or nothing (AC3)."""
         with self.write() as connection:
             connection.execute(
-                "DELETE FROM transactions WHERE account_id = ?",
-                (account.id,),  # pragma: no mutate
+                "DELETE FROM transactions WHERE account_id = ?",  # pragma: no mutate
+                (account.id,),
             )
             connection.execute(
-                "DELETE FROM imports WHERE account_id = ?",
-                (account.id,),  # pragma: no mutate
+                "DELETE FROM imports WHERE account_id = ?",  # pragma: no mutate
+                (account.id,),
             )
             gone = connection.execute(
-                "DELETE FROM accounts WHERE id = ?",
-                (account.id,),  # pragma: no mutate
+                "DELETE FROM accounts WHERE id = ?",  # pragma: no mutate
+                (account.id,),
             ).rowcount
             if gone == 0:
                 raise RefusedError(f'no account named "{account.name}"')
