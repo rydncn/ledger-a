@@ -115,9 +115,15 @@ class Layout:
         if layout.decimal == layout.thousands:
             _fail(name, "decimal and thousands must differ")
         try:
-            codecs.lookup(layout.encoding)
+            csv.reader([], delimiter=layout.delimiter)
+        except ValueError:
+            _fail(name, "delimiter cannot be a quote or a line ending")
+        try:
+            encoded = "Date".encode(layout.encoding)
         except LookupError:
             _fail(name, f'unknown encoding "{layout.encoding}"')
+        if b"\0" in encoded:  # UTF-16 and UTF-32: kind() reads a NUL byte as not a text file
+            _fail(name, f'encoding "{layout.encoding}" is not supported: its text holds NUL bytes')
         try:
             read_back = datetime.strptime(_PROBE.strftime(layout.date_format), layout.date_format)
         except ValueError:
@@ -155,10 +161,13 @@ class _Lines:
 
     def _read(self) -> str:
         try:
-            return self._handle.readline(MAX_LINE)
+            line = self._handle.readline(MAX_LINE)
         except UnicodeDecodeError as error:
             # The decoder reads ahead of the lines, so no line number can be trusted here.
             raise NotAStatementError(f"not a text file: not valid {self._encoding}") from error
+        if "\0" in line:  # the csv module would pass it through; SQLite's text functions stop at it
+            raise NotAStatementError("not a text file")
+        return line
 
 
 def _reason(error: Exception) -> str:

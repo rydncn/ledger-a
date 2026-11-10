@@ -94,6 +94,17 @@ def test_ac43_the_sample_layouts_build_with_their_defaults() -> None:
         ({**BANK, "date_fromat": "%d"}, 'unknown key "date_fromat"'),
         ({**BANK, "date": 1}, "date must be a string"),
         ({**BANK, "balance": "Balance"}, 'unknown key "balance"'),
+        ({**BANK, "delimiter": "\n"}, "delimiter cannot be a quote or a line ending"),
+        ({**BANK, "delimiter": "\r"}, "delimiter cannot be a quote or a line ending"),
+        ({**BANK, "delimiter": '"'}, "delimiter cannot be a quote or a line ending"),
+        (
+            {**BANK, "encoding": "utf-16"},
+            'encoding "utf-16" is not supported: its text holds NUL bytes',
+        ),
+        (
+            {**BANK, "encoding": "UTF-32-LE"},
+            'encoding "UTF-32-LE" is not supported: its text holds NUL bytes',
+        ),
     ],
 )
 def test_ac43_an_invalid_layout_names_itself_and_the_problem(
@@ -262,6 +273,10 @@ def test_ac16_identical_rows_in_one_file_are_numbered_and_descriptions_normalise
         ),
         (b"Date,Description,Money Out,Balance\r\n", 'header has no column named "Money In"'),
         (b"\n", 'header has no column named "Date"'),
+        (
+            HEADER.encode() + b"01/10/2026,X,1.00,,\r\n" * 60 + b"01/10/2026,BAD\x00NUL,1.00,,\r\n",
+            "not a text file",
+        ),
         (
             b"Date,Description,Money Out,Money In\r\n01/10/2026,X,1.00,\r\n"
             b"01/10/2026,Y\xff,1.00,\r\n",

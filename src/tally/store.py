@@ -257,12 +257,15 @@ class Store:
         added = duplicates = 0
         unreadable: list[Unreadable] = []
         with self.write() as connection:
-            (import_id,) = connection.execute(
-                "INSERT INTO imports (account_id, file, imported_at,"  # pragma: no mutate
-                " added, duplicates, unreadable)"  # pragma: no mutate
-                " VALUES (?, ?, ?, 0, 0, 0) RETURNING id",  # pragma: no mutate
-                (account.id, file, _now()),
-            ).fetchone()
+            try:
+                (import_id,) = connection.execute(
+                    "INSERT INTO imports (account_id, file, imported_at,"  # pragma: no mutate
+                    " added, duplicates, unreadable)"  # pragma: no mutate
+                    " VALUES (?, ?, ?, 0, 0, 0) RETURNING id",  # pragma: no mutate
+                    (account.id, file, _now()),
+                ).fetchone()
+            except sqlite3.IntegrityError as error:  # the foreign key: another copy forgot it
+                raise RefusedError(f'no account named "{account.name}"') from error
             for outcome in outcomes:
                 if isinstance(outcome, Unreadable):
                     unreadable.append(outcome)

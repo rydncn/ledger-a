@@ -17,7 +17,7 @@ import pytest
 
 from tally.cli import main
 from tally.importers import Transaction, Unreadable
-from tally.store import Store
+from tally.store import RefusedError, Store
 from tests import SAMPLES
 
 HEADER = "Date,Description,Money Out,Money In,Balance\r\n"
@@ -558,3 +558,19 @@ def test_ac08_a_copy_that_cannot_get_the_file_in_time_says_so_and_writes_nothing
     assert holder.execute("SELECT count(*) FROM imports").fetchone() == (0,)
     assert holder.execute("SELECT count(*) FROM transactions").fetchone() == (0,)
     holder.close()
+
+
+def test_ac05_an_account_forgotten_by_another_copy_during_the_import_is_refused(
+    tmp_path: Path,
+) -> None:
+    with Store.open(tmp_path) as store, Store.open(tmp_path) as other:
+        account = store.add_account("current", "GBP")
+        other.forget_account(account)
+        with pytest.raises(RefusedError, match=r'^no account named "current"$'):
+            store.import_transactions(
+                account, "a.csv", [Transaction(2, "2026-10-01", "x", -100, "csv:1")]
+            )
+        assert store.accounts() == []
+    connection = sqlite3.connect(tmp_path / "tally.sqlite")
+    assert connection.execute("SELECT count(*) FROM imports").fetchone() == (0,)
+    connection.close()
