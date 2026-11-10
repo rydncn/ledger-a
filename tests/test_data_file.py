@@ -6,6 +6,7 @@ import sqlite3
 import stat
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -253,3 +254,27 @@ def test_a_data_file_that_is_not_a_database_is_refused_in_one_line(
     assert (code, captured.out) == (1, "")
     assert captured.err.startswith("cannot open the data file: ")
     assert captured.err.count("\n") == 1
+
+
+def test_ac07_a_copy_waits_for_a_fresh_file_another_copy_is_still_creating(tmp_path: Path) -> None:
+    """Switching a brand-new file to WAL while another copy holds it is SQLITE_BUSY without
+    the busy handler (SQLite's deadlock avoidance), so the wait has to be Tally's own."""
+    data_file = tmp_path / "tally.sqlite"
+    data_file.touch(mode=0o600)
+    holder = sqlite3.connect(data_file, autocommit=True, check_same_thread=False)
+    holder.execute("BEGIN IMMEDIATE")
+    holder.execute("CREATE TABLE placeholder (x)")
+    holder.execute("DROP TABLE placeholder")
+
+    def release() -> None:
+        time.sleep(1)
+        holder.execute("COMMIT")
+
+    releasing = threading.Thread(target=release)
+    started = time.monotonic()
+    releasing.start()
+    with Store.open(tmp_path) as store:
+        assert store.accounts() == []
+    releasing.join()
+    holder.close()
+    assert time.monotonic() - started >= 1

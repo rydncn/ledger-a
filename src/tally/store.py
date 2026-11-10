@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import sqlite3
 import stat
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -89,6 +90,25 @@ def _busy_is_locked() -> Iterator[None]:
         raise
 
 
+def _switch_to_wal(connection: sqlite3.Connection) -> None:
+    """Set WAL, waiting if another copy is creating the same file right now.
+
+    Converting a brand-new file while another connection holds it is SQLITE_BUSY
+    without the busy handler (SQLite's deadlock avoidance), so the wait is ours.
+    """
+    deadline = time.monotonic() + BUSY_TIMEOUT_SECONDS
+    while True:
+        try:
+            connection.execute("PRAGMA journal_mode=WAL")  # pragma: no mutate
+        except sqlite3.OperationalError as error:
+            out_of_time = time.monotonic() > deadline  # pragma: no mutate
+            if error.sqlite_errorcode != sqlite3.SQLITE_BUSY or out_of_time:
+                raise
+            time.sleep(0.01)  # pragma: no mutate
+        else:
+            return
+
+
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
@@ -120,7 +140,7 @@ class Store:
         store = cls(connection, tightened=tightened)
         try:
             with _busy_is_locked():
-                connection.execute("PRAGMA journal_mode=WAL")  # pragma: no mutate
+                _switch_to_wal(connection)
                 connection.execute("PRAGMA foreign_keys=ON")  # pragma: no mutate
                 store._migrate()
         except sqlite3.DatabaseError as error:
