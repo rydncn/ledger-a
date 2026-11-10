@@ -45,6 +45,7 @@ exclude-newer = "2026-11-03T00:00:00Z"
 target-version = "py315"
 line-length = 100
 src = ["src", "tests"]
+extend-exclude = ["docs"]  # the Python pack keeps copies of scripts/ there
 
 [tool.ruff.lint]
 select = [

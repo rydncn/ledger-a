@@ -39,3 +39,12 @@ def test_the_installed_command_runs() -> None:
     )
     assert result.returncode == 0
     assert result.stdout.strip() == f"tally {__version__}"
+
+
+def test_help_names_the_command_and_what_it_is_for(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as raised:
+        main(["--help"])
+    assert raised.value.code == 0
+    out = capsys.readouterr().out
+    assert out.startswith("usage: tally [-h] [--version] <command> ...")
+    assert "See where your money goes, from your bank's statement files." in out

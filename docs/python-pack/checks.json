@@ -1,0 +1,12 @@
+{
+  "afterEdit": [
+    { "extensions": [".py"], "run": ["uv", "run", "--no-build", "ruff", "format", "{file}"], "fix": true },
+    { "extensions": [".py"], "run": ["uv", "run", "--no-build", "ruff", "check", "{file}"] }
+  ],
+  "beforeStop": [
+    { "run": ["uv", "run", "--no-build", "ruff", "format", "--check", "."] },
+    { "run": ["uv", "run", "--no-build", "ruff", "check", "."] },
+    { "run": ["uv", "run", "--no-build", "mypy"] },
+    { "run": ["uv", "run", "--no-build", "pytest", "-q", "-p", "no:randomly"] }
+  ]
+}
