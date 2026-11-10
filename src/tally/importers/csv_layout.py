@@ -119,7 +119,7 @@ class Layout:
         except ValueError:
             _fail(name, "delimiter cannot be a quote or a line ending")
         try:
-            encoded = "Date".encode(layout.encoding)
+            encoded = "Date".encode(layout.encoding)  # pragma: no mutate (any text shows the NULs)
         except LookupError:
             _fail(name, f'unknown encoding "{layout.encoding}"')
         if b"\0" in encoded:  # UTF-16 and UTF-32: kind() reads a NUL byte as not a text file
