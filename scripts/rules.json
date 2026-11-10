@@ -1,0 +1,16 @@
+[
+  {
+    "id": "no-float-for-money",
+    "message": "Amounts are exact: no float anywhere money is held, parsed or summed. Use Decimal or integer minor units. See CLAUDE.md § Security boundaries.",
+    "dirs": ["src"],
+    "extensions": [".py"],
+    "pattern": "\\bfloat\\b"
+  },
+  {
+    "id": "no-network",
+    "message": "Tally never makes a network connection. See CLAUDE.md § Security boundaries.",
+    "dirs": ["src"],
+    "extensions": [".py"],
+    "pattern": "\\b(urllib\\.request|http\\.client|socket|requests|httpx|urlopen|smtplib|ftplib)\\b"
+  }
+]
