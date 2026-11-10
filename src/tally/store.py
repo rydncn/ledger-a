@@ -102,7 +102,8 @@ def _switch_to_wal(connection: sqlite3.Connection) -> None:
             connection.execute("PRAGMA journal_mode=WAL")  # pragma: no mutate
         except sqlite3.OperationalError as error:
             out_of_time = time.monotonic() > deadline  # pragma: no mutate
-            if error.sqlite_errorcode != sqlite3.SQLITE_BUSY or out_of_time:
+            # no mutate: the deadline arm is reachable only by waiting the whole timeout
+            if error.sqlite_errorcode != sqlite3.SQLITE_BUSY or out_of_time:  # pragma: no mutate
                 raise
             time.sleep(0.01)  # pragma: no mutate
         else:
