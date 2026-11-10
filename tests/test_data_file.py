@@ -24,6 +24,7 @@ def test_ac06_a_fresh_data_directory_and_file_are_the_users_alone(tmp_path: Path
     data_dir = tmp_path / "deep" / "data"
     with Store.open(data_dir) as store:
         assert store.tightened is False
+        assert store._path == data_dir / "tally.sqlite"  # what a read-only refusal reports
     assert mode(data_dir) == 0o700
     assert mode(data_dir / "tally.sqlite") == 0o600
     connection = sqlite3.connect(data_dir / "tally.sqlite")

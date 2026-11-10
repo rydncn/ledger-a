@@ -151,8 +151,8 @@ def import_run(args: argparse.Namespace, config: Config) -> int:
     """Logging on for this run only when ``--verbose`` asks (AC19), then the import."""
     if not args.verbose:
         return _import(args, config)
-    log = logging.getLogger("tally")
-    handler = logging.StreamHandler(sys.stderr)
+    log = logging.getLogger("tally")  # pragma: no mutate (the root logger carries the same lines)
+    handler = logging.StreamHandler(sys.stderr)  # pragma: no mutate (None is standard error too)
     log.addHandler(handler)
     log.setLevel(logging.INFO)
     try:
@@ -188,7 +188,12 @@ def _import(args: argparse.Namespace, config: Config) -> int:
         print(f"line {unreadable.line}: {unreadable.reason}", file=sys.stderr)
     if len(summary.unreadable) > UNREADABLE_LINES_SHOWN:
         print(f"and {len(summary.unreadable) - UNREADABLE_LINES_SHOWN} more", file=sys.stderr)
-    if args.format == "json":
+    if args.format == "table":
+        print(
+            f"added {summary.added}, already there {summary.duplicates},"
+            f" unreadable {len(summary.unreadable)}"
+        )
+    else:
         print(
             json.dumps(
                 {
@@ -201,11 +206,6 @@ def _import(args: argparse.Namespace, config: Config) -> int:
                     ],
                 }
             )
-        )
-    else:
-        print(
-            f"added {summary.added}, already there {summary.duplicates},"
-            f" unreadable {len(summary.unreadable)}"
         )
     return EXIT_OK
 

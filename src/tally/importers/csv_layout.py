@@ -119,7 +119,7 @@ class Layout:
         except ValueError:
             _fail(name, "delimiter cannot be a quote or a line ending")
         try:
-            encoded = "Date".encode(layout.encoding)
+            encoded = "Date".encode(layout.encoding)  # pragma: no mutate (any text shows the NULs)
         except LookupError:
             _fail(name, f'unknown encoding "{layout.encoding}"')
         if b"\0" in encoded:  # UTF-16 and UTF-32: kind() reads a NUL byte as not a text file
@@ -173,7 +173,9 @@ class _Lines:
 def _reason(error: Exception) -> str:
     if isinstance(error, _LineTooLongError) or "field limit" in str(error):
         return TOO_LONG
-    return str(error)  # the csv module's other messages name no content
+    # no mutate: unreachable with the default dialect and newline="", kept for the module's
+    # other errors, whose messages name no content
+    return str(error)  # pragma: no mutate
 
 
 class _Rows:

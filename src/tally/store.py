@@ -179,13 +179,19 @@ class Store:
 
     @contextmanager
     def write(self) -> Iterator[sqlite3.Connection]:
-        """One ``BEGIN IMMEDIATE`` transaction: committed on success, rolled back on any error."""
-        with _busy_is_locked():
-            self._connection.execute("BEGIN IMMEDIATE")  # pragma: no mutate
+        """One ``BEGIN IMMEDIATE`` transaction: committed on success, rolled back on any error.
+
+        A data file that cannot be written (``SQLITE_READONLY``, which the first write
+        raises, not ``BEGIN``) is refused with its permissions, reported and not changed
+        (AC42).
+        """
         try:
+            with _busy_is_locked():
+                self._connection.execute("BEGIN IMMEDIATE")  # pragma: no mutate
             yield self._connection
         except BaseException as error:
-            self._connection.execute("ROLLBACK")  # pragma: no mutate
+            if self._connection.in_transaction:
+                self._connection.execute("ROLLBACK")  # pragma: no mutate
             if (
                 isinstance(error, sqlite3.OperationalError)
                 and error.sqlite_errorcode == sqlite3.SQLITE_READONLY
