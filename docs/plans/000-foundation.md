@@ -1,6 +1,6 @@
 # 000. Foundation
 
-**Status:** active · **Satisfies:** none (the gates, proved by breaking) · **Depends on:** none
+**Status:** done · **Satisfies:** none (the gates, proved by breaking) · **Depends on:** none
 
 The slice before the first behaviour: the design, the draft Python pack, the gates in the agent's loop and in CI, the samples, and the trial's record files. Its "tests" are the gates themselves, each seen to fail once on a clean tree (rules 9 and 15).
 
