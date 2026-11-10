@@ -10,13 +10,19 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
 import unicodedata
 from collections.abc import Sequence
+from pathlib import Path
 
 from tally import __version__
-from tally.config import ConfigError, data_dir_for, load_config
+from tally.config import Config, ConfigError, data_dir_for, load_config
+from tally.importers import NotAStatementError, kind
+from tally.importers.csv_layout import Layout, read
 from tally.store import LockedError, RefusedError, Store
+
+UNREADABLE_LINES_SHOWN = 50
 
 EXIT_OK = 0
 EXIT_REFUSED = 1
@@ -69,16 +75,42 @@ def build_parser() -> argparse.ArgumentParser:
     forget.add_argument("name", type=account_name)
     forget.add_argument("--yes", action="store_true", help="do not ask first")
     forget.set_defaults(run=account_forget)
+
+    importing = commands.add_parser(
+        "import", parents=[common], help="import a statement file into an account"
+    )
+    importing.add_argument("file", help="a CSV statement (OFX arrives in slice 3)")
+    importing.add_argument(
+        "--account", required=True, type=account_name, help="the account the statement belongs to"
+    )
+    importing.add_argument(
+        "--layout", metavar="NAME", help="the [layouts.NAME] table that describes the CSV"
+    )
+    importing.add_argument("--format", choices=["table", "json"], default="table")
+    importing.add_argument(
+        "--verbose", action="store_true", help="say what is being read, on standard error"
+    )
+    importing.set_defaults(run=import_run)
     return parser
 
 
-def account_add(args: argparse.Namespace, store: Store) -> int:
-    store.add_account(args.name, args.currency)
+def open_store(args: argparse.Namespace, config: Config) -> Store:
+    """Open the data file where the flag, the variable or the configuration puts it."""
+    store = Store.open(data_dir_for(args.data_dir, config))
+    if store.tightened:
+        print("tightened the data file's permissions to 0600", file=sys.stderr)
+    return store
+
+
+def account_add(args: argparse.Namespace, config: Config) -> int:
+    with open_store(args, config) as store:
+        store.add_account(args.name, args.currency)
     return EXIT_OK
 
 
-def account_list(args: argparse.Namespace, store: Store) -> int:
-    accounts = store.accounts()
+def account_list(args: argparse.Namespace, config: Config) -> int:
+    with open_store(args, config) as store:
+        accounts = store.accounts()
     if args.format == "table":
         for a in accounts:
             print(f"{a.name} {a.currency}")
@@ -87,7 +119,12 @@ def account_list(args: argparse.Namespace, store: Store) -> int:
     return EXIT_OK
 
 
-def account_forget(args: argparse.Namespace, store: Store) -> int:
+def account_forget(args: argparse.Namespace, config: Config) -> int:
+    with open_store(args, config) as store:
+        return _forget(args, store)
+
+
+def _forget(args: argparse.Namespace, store: Store) -> int:
     account = store.account(args.name)
     if account is None:
         raise RefusedError(f'no account named "{args.name}"')
@@ -110,6 +147,69 @@ def account_forget(args: argparse.Namespace, store: Store) -> int:
     return EXIT_OK
 
 
+def import_run(args: argparse.Namespace, config: Config) -> int:
+    """Logging on for this run only when ``--verbose`` asks (AC19), then the import."""
+    if not args.verbose:
+        return _import(args, config)
+    log = logging.getLogger("tally")
+    handler = logging.StreamHandler(sys.stderr)
+    log.addHandler(handler)
+    log.setLevel(logging.INFO)
+    try:
+        return _import(args, config)
+    finally:
+        log.removeHandler(handler)
+        log.setLevel(logging.NOTSET)
+
+
+def _import(args: argparse.Namespace, config: Config) -> int:
+    """The import run of design § Lifecycles: refusals before the lock, rows under it."""
+    layout = None
+    if args.layout is not None:
+        if args.layout not in config.layouts:
+            raise ConfigError(f'no layout named "{args.layout}"')
+        layout = Layout.from_config(args.layout, config.layouts[args.layout])
+    path = Path(args.file)
+    file_kind = kind(path)
+    if file_kind == "csv" and layout is None:
+        print("--layout is needed for a CSV file", file=sys.stderr)
+        return EXIT_USAGE
+    if file_kind != "csv" and layout is not None:
+        print("--layout is for CSV files, and this is an OFX file", file=sys.stderr)
+        return EXIT_USAGE
+    if layout is None:
+        raise NotAStatementError("OFX import is not available yet")
+    with open_store(args, config) as store:
+        account = store.account(args.account)
+        if account is None:
+            raise RefusedError(f'no account named "{args.account}"')
+        summary = store.import_transactions(account, args.file, read(path, layout, account.scale))
+    for unreadable in summary.unreadable[:UNREADABLE_LINES_SHOWN]:
+        print(f"line {unreadable.line}: {unreadable.reason}", file=sys.stderr)
+    if len(summary.unreadable) > UNREADABLE_LINES_SHOWN:
+        print(f"and {len(summary.unreadable) - UNREADABLE_LINES_SHOWN} more", file=sys.stderr)
+    if args.format == "json":
+        print(
+            json.dumps(
+                {
+                    "account": account.name,
+                    "file": args.file,
+                    "added": summary.added,
+                    "duplicates": summary.duplicates,
+                    "unreadable": [
+                        {"line": u.line, "reason": u.reason} for u in summary.unreadable
+                    ],
+                }
+            )
+        )
+    else:
+        print(
+            f"added {summary.added}, already there {summary.duplicates},"
+            f" unreadable {len(summary.unreadable)}"
+        )
+    return EXIT_OK
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the command line and return the exit code."""
     parser = build_parser()
@@ -119,14 +219,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         return EXIT_USAGE
     try:
         config = load_config(args.config)
-        with Store.open(data_dir_for(args.data_dir, config)) as store:
-            if store.tightened:
-                print("tightened the data file's permissions to 0600", file=sys.stderr)
-            code: int = args.run(args, store)
+        code: int = args.run(args, config)
     except ConfigError as error:
         print(error, file=sys.stderr)
         return EXIT_USAGE
-    except RefusedError as error:
+    except (RefusedError, NotAStatementError) as error:
         print(error, file=sys.stderr)
         return EXIT_REFUSED
     except LockedError as error:

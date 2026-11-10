@@ -52,6 +52,7 @@ See where your money goes, from your bank's statement files.
 positional arguments:
   <command>
     account   add, list and forget accounts
+    import    import a statement file into an account
 
 options:
   -h, --help  show this help message and exit
@@ -118,6 +119,24 @@ options:
   --yes           do not ask first
 """
 
+IMPORT_HELP = """\
+usage: tally import [-h] [--config FILE] [--data-dir DIR] --account ACCOUNT
+                    [--layout NAME] [--format {table,json}] [--verbose]
+                    file
+
+positional arguments:
+  file                  a CSV statement (OFX arrives in slice 3)
+
+options:
+  -h, --help            show this help message and exit
+  --config FILE         the tally.toml to read
+  --data-dir DIR        where the data file lives
+  --account ACCOUNT     the account the statement belongs to
+  --layout NAME         the [layouts.NAME] table that describes the CSV
+  --format {table,json}
+  --verbose             say what is being read, on standard error
+"""
+
 
 @pytest.mark.parametrize(
     ("argv", "expected"),
@@ -126,6 +145,7 @@ options:
         (["account", "add"], ADD_HELP),
         (["account", "list"], LIST_HELP),
         (["account", "forget"], FORGET_HELP),
+        (["import"], IMPORT_HELP),
     ],
 )
 def test_each_account_help_screen_is_whole(
