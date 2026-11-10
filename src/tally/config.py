@@ -82,6 +82,6 @@ def data_dir_for(explicit: str | None, config: Config) -> Path:
         return Path(given)
     if config.data_dir is not None:
         return config.data_dir
-    if os.name == "nt":  # pragma: no cover
-        return Path(os.environ.get("LOCALAPPDATA", "~")).expanduser() / "tally"
+    if os.name == "nt":  # pragma: no cover, no mutate: no Windows in the test run
+        return Path(os.environ.get("LOCALAPPDATA", "~")).expanduser() / "tally"  # pragma: no mutate
     return DEFAULT_DATA_DIR.expanduser()

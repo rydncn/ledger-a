@@ -71,13 +71,15 @@ def parse_amount(text: str, decimal: str, thousands: str) -> Decimal:
     if s.startswith("(") and s.endswith(")"):
         s = s[1:-1]
         negations += 1
-    if s[:1] in _SIGNS and s:
+    if "(" in s or ")" in s:
+        raise AmountError(NOT_A_NUMBER)
+    if s and s[0] in _SIGNS:
         negations += s[0] == "-"
         s = s[1:]
-    # A currency symbol: one character that is neither a digit, a sign nor a separator.
-    if s[:1] and not s[0].isdigit() and s[0] not in _SIGNS + decimal + thousands + "()":
+    # A currency symbol: one character that is not a digit, a letter, a sign or a separator.
+    if s and not s[0].isalnum() and s[0] not in _SIGNS + decimal + thousands:
         s = s[1:]
-    if s[:1] in _SIGNS and s:
+    if s and s[0] in _SIGNS:
         negations += s[0] == "-"
         s = s[1:]
     if s.endswith("-"):
@@ -93,20 +95,24 @@ def parse_amount(text: str, decimal: str, thousands: str) -> Decimal:
     if sep and not re.fullmatch(r"\d+", fraction):
         raise AmountError(NOT_A_NUMBER)
     digits = whole.replace(thousands, "")
-    if not digits and not fraction:
-        raise AmountError(NOT_A_NUMBER)
-    value = Decimal(f"{digits or '0'}.{fraction or '0'}")
-    return -value if negations else value
+    # Built as text, never by arithmetic: Decimal's context would round at 28 digits.
+    return Decimal(f"{'-' if negations else ''}{digits or '0'}.{fraction or '0'}")
 
 
 def to_minor(amount: Decimal, scale: int) -> int:
     """The amount as integer minor units, refusing one that does not fit the scale."""
-    shifted = amount.scaleb(scale)
+    sign, digits, exponent = amount.as_tuple()
+    if not isinstance(exponent, int):
+        raise AmountError(NOT_A_NUMBER)
+    shifted = Decimal((sign, digits, exponent + scale))  # exact, unlike scaleb
     if shifted != shifted.to_integral_value():
         raise AmountError(f"amount has more than {scale} decimal places")
-    return int(shifted)
+    minor = int(shifted)
+    if not -(2**63) <= minor < 2**63:  # SQLite's INTEGER
+        raise AmountError("amount is too large to store")
+    return minor
 
 
 def from_minor(minor: int, scale: int) -> Decimal:
     """Integer minor units back to an exact amount with ``scale`` decimal places."""
-    return Decimal(minor).scaleb(-scale).quantize(Decimal(1).scaleb(-scale))
+    return Decimal(minor).scaleb(-scale).quantize(Decimal(10) ** -scale)

@@ -26,37 +26,37 @@ Each task: the test first, seen to fail for the right reason, then the code, the
 
 - **Test:** `tests/test_money.py::test_ac44_*`: the ten readable texts give the exact decimals; the eight unreadable ones raise with `amount is not a number`; the comma-decimal layout reads `1.234,56` and refuses `1,234.56`; minor units round-trip at scale 2, 0 and 3.
 - **Code:** `money.py`: `Money`, `parse_amount(text, decimal, thousands)`, `to_minor`, `from_minor`, `scale_of(currency)`.
-- **Observed by:** `ModuleNotFoundError: tally.money` before; 4 tests pass after.
+- **Observed by:** `ModuleNotFoundError: No module named 'tally.money'` before; 25 of 26 pass after the first write, `(12.50` read as 12.50 because `(` was taken for a currency symbol; brackets excluded, 26 pass.
 
 ### Task 2: The configuration file is found and read (part of AC1, AC6; exit 2 contract of AC34)
 
 - **Test:** `tests/test_config.py`: no file is an empty configuration; `--config` and `$TALLY_CONFIG` are honoured in that order; a missing explicit file, a TOML syntax error (with its line), `data_dir` that is not a string, `layouts` that is not a table, `rules` that is not an array, and an unknown key are each `ConfigError` naming the key; `data_dir` resolves relative to the file; the data directory order is flag, variable, config, default.
 - **Code:** `config.py`: `Config`, `ConfigError`, `find_config`, `load_config`, `data_dir_for`.
-- **Observed by:** `ModuleNotFoundError: tally.config` before; the tests pass after.
+- **Observed by:** `ModuleNotFoundError: No module named 'tally.config'` before; 14 pass after.
 
 ### Task 3: The data file, with permissions and locking (AC6, AC7, AC8)
 
 - **Test:** `tests/test_data_file.py`: `Store.open` on a fresh path creates the directory `0700` and the file `0600` and sets WAL; a pre-existing `0644` file is tightened and the flag is set; the schema has `accounts`, `transactions` with `UNIQUE(account_id, fingerprint)` and `imports`; a second connection holding `BEGIN IMMEDIATE` makes `store.write()` raise `Locked` after the timeout; `user_version` is 1.
 - **Code:** `store.py`: `Store.open`, the schema and `user_version` migration, `write()` as `BEGIN IMMEDIATE` with commit or rollback, `Locked`, `Refused`, `add_account`, `accounts`, `account`, `transaction_count`, `forget_account`.
-- **Observed by:** `ModuleNotFoundError: tally.store` before; the tests pass after.
+- **Observed by:** `ModuleNotFoundError: No module named 'tally.store'` before; 3 pass after. Ruff's N818 renamed `Refused` and `Locked` to `RefusedError` and `LockedError`. The locking test moved to Task 6, where AC8 needs it through `main` anyway.
 
 ### Task 4: `account add` and `account list` (AC1, AC2, AC34, AC35)
 
 - **Test:** `tests/test_accounts.py`: AC1 through `main(argv)` with `--data-dir`, then permissions on disk; AC2 refused with exit 1, nothing on stdout, one line on stderr naming the account, currency still GBP; AC34: an invalid currency is exit 2 with stdout empty; AC35: `--format json` is exactly one JSON array with `name` and `currency`; one subprocess test runs the console script for add and list and checks exit codes and streams.
 - **Code:** `cli.py`: the `account` subcommand group with `add`, `list`, the shared `--config`, `--data-dir`, `--format` options, the exit-code mapping.
-- **Observed by:** `argparse` error `invalid choice: 'account'` (exit 2) before; the tests pass after.
+- **Observed by:** `argparse.ArgumentError: argument <command>: invalid choice: 'account'` before (17 of 18 failed; the bare `account` usage case already exited 2 for that reason); 22 pass after, including the subprocess test.
 
 ### Task 5: `account forget` (AC3, AC4)
 
 - **Test:** `tests/test_accounts.py`: two accounts with rows in the real file; `forget current --yes` leaves only `savings` in `list` and only its rows and import records in the file; `forget old --yes` is refused, exit 1; without `--yes` and not a terminal, exit 2 and nothing deleted; with a terminal stdin, the prompt on stderr names the account and the count, `no` refuses with exit 1 and deletes nothing, `yes` deletes.
 - **Code:** `cli.py` `forget`; `store.py` `forget_account`.
-- **Observed by:** `invalid choice: 'forget'` before; the tests pass after.
+- **Observed by:** written and run with Task 4 (same failure, same run); the prompt tests needed a stand-in stdin that says it is a terminal.
 
 ### Task 6: Two copies at once, through the real process (AC6, AC7, AC8)
 
 - **Test:** `tests/test_data_file.py`: `TALLY_DATA_DIR` set to a fresh path and the console script run; two `account add` processes started together both exit 0, `list` shows both, `PRAGMA integrity_check` is `ok`; with a lock held from the test for 2 seconds, `account add` in a subprocess waits and exits 0; with a lock held past the timeout, `account add` in-process exits 3 with `another copy of tally is using the data file` on stderr and no account written.
 - **Code:** none expected beyond Task 3; whatever the tests find.
-- **Observed by:** recorded when run.
+- **Observed by:** 6 of 7 passed first time; `test_ac06_the_variable_...` failed with `PytestUnraisableExceptionWarning: Exception ignored while finalizing database connection`: `Store.open` leaked its connection when the busy timeout fired during migration (the AC8 run before it). Fixed by closing on failure; 7 pass, the AC8 test taking 10 s.
 
 ## Done when
 

@@ -51,3 +51,74 @@ def test_help_names_the_command_and_what_it_is_for(capsys: pytest.CaptureFixture
     out = capsys.readouterr().out
     assert out.startswith("usage: tally [-h] [--version] <command> ...")
     assert "\nSee where your money goes, from your bank's statement files.\n" in out
+
+
+ACCOUNT_HELP = """\
+usage: tally account [-h] <action> ...
+
+positional arguments:
+  <action>
+    add       add an account
+    list      list the accounts
+    forget    delete an account and everything imported into it
+
+options:
+  -h, --help  show this help message and exit
+"""
+
+ADD_HELP = """\
+usage: tally account add [-h] [--config FILE] [--data-dir DIR]
+                         --currency CURRENCY
+                         name
+
+positional arguments:
+  name
+
+options:
+  -h, --help           show this help message and exit
+  --config FILE        the tally.toml to read
+  --data-dir DIR       where the data file lives
+  --currency CURRENCY  three letters, e.g. GBP
+"""
+
+LIST_HELP = """\
+usage: tally account list [-h] [--config FILE] [--data-dir DIR]
+                          [--format {table,json}]
+
+options:
+  -h, --help            show this help message and exit
+  --config FILE         the tally.toml to read
+  --data-dir DIR        where the data file lives
+  --format {table,json}
+"""
+
+FORGET_HELP = """\
+usage: tally account forget [-h] [--config FILE] [--data-dir DIR] [--yes] name
+
+positional arguments:
+  name
+
+options:
+  -h, --help      show this help message and exit
+  --config FILE   the tally.toml to read
+  --data-dir DIR  where the data file lives
+  --yes           do not ask first
+"""
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected"),
+    [
+        (["account"], ACCOUNT_HELP),
+        (["account", "add"], ADD_HELP),
+        (["account", "list"], LIST_HELP),
+        (["account", "forget"], FORGET_HELP),
+    ],
+)
+def test_each_account_help_screen_is_whole(
+    capsys: pytest.CaptureFixture[str], argv: list[str], expected: str
+) -> None:
+    with pytest.raises(SystemExit) as raised:
+        main([*argv, "--help"])
+    assert raised.value.code == 0
+    assert capsys.readouterr().out == expected

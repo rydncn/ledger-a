@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import unicodedata
 from collections.abc import Sequence
 
 from tally import __version__
@@ -24,9 +25,12 @@ EXIT_LOCKED = 3
 
 
 def account_name(text: str) -> str:
-    if not text.strip():
+    name = text.strip()
+    if not name:
         raise argparse.ArgumentTypeError("must not be empty")
-    return text
+    if any(unicodedata.category(c).startswith("C") for c in name):
+        raise argparse.ArgumentTypeError("must not contain control characters or line breaks")
+    return name
 
 
 def currency_code(text: str) -> str:
@@ -49,7 +53,7 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--data-dir", metavar="DIR", help="where the data file lives")
 
     account = commands.add_parser("account", help="add, list and forget accounts")
-    actions = account.add_subparsers(dest="action", metavar="<action>", required=True)
+    actions = account.add_subparsers(metavar="<action>", required=True)
     add = actions.add_parser("add", parents=[common], help="add an account")
     add.add_argument("name", type=account_name)
     add.add_argument(
@@ -89,7 +93,7 @@ def account_forget(args: argparse.Namespace, store: Store) -> int:
         raise RefusedError(f'no account named "{args.name}"')
     count = store.transaction_count(account)
     if not args.yes:
-        if not sys.stdin.isatty():
+        if sys.stdin is None or not sys.stdin.isatty():
             print(
                 f'forgetting "{account.name}" needs --yes when standard input is not a terminal',
                 file=sys.stderr,

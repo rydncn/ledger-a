@@ -161,10 +161,19 @@ def test_ac04_forgetting_an_unknown_account_is_refused(
 @pytest.mark.parametrize(
     ("argv", "named"),
     [
-        (["account", "add", "current", "--currency", "pounds"], "--currency"),
-        (["account", "add", "current", "--currency", "gb1"], "--currency"),
+        (
+            ["account", "add", "current", "--currency", "pounds"],
+            "'pounds' is not a three-letter currency code",
+        ),
+        (
+            ["account", "add", "current", "--currency", "gb1"],
+            "'gb1' is not a three-letter currency code",
+        ),
         (["account", "add", "current"], "--currency"),
-        (["account", "add", " ", "--currency", "GBP"], "name"),
+        (["account", "add", " ", "--currency", "GBP"], "name: must not be empty"),
+        (["account", "add", "two\nlines", "--currency", "GBP"], "name: must not contain"),
+        (["account", "add", "a\tb", "--currency", "GBP"], "name: must not contain"),
+        (["account", "add", "bell\x07", "--currency", "GBP"], "name: must not contain"),
         (["account", "list", "--format", "xml"], "--format"),
         (["account"], "usage"),
         (["account", "forget"], "name"),
@@ -267,3 +276,42 @@ def test_the_installed_command_adds_lists_and_forgets(tmp_path: Path) -> None:
     forgotten = tally_run("forget", "current", "--yes")
     assert (forgotten.returncode, forgotten.stdout) == (0, "")
     assert tally_run("list").stdout == ""
+
+
+def test_ac01_a_name_is_trimmed_and_may_hold_a_space(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    add(tmp_path, " my account ", "GBP", capsys)
+    assert run(["account", "list", "--data-dir", str(tmp_path)], capsys) == (
+        0,
+        "my account GBP\n",
+        "",
+    )
+    code, out, err = run(
+        ["account", "forget", "my account", "--yes", "--data-dir", str(tmp_path)], capsys
+    )
+    assert (code, out, err) == (0, "", 'forgot account "my account" and its 0 transactions\n')
+
+
+def test_ac03_without_yes_and_no_standard_input_at_all_is_a_usage_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    add(tmp_path, "current", "GBP", capsys)
+    monkeypatch.setattr("sys.stdin", None)
+    code, out, err = run(["account", "forget", "current", "--data-dir", str(tmp_path)], capsys)
+    assert (code, out) == (2, "")
+    assert err == 'forgetting "current" needs --yes when standard input is not a terminal\n'
+    assert counts(tmp_path) == {"current": (0, 0)}
+
+
+def test_ac06_the_configuration_places_the_data_file(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = tmp_path / "conf" / "tally.toml"
+    config.parent.mkdir()
+    config.write_text('data_dir = "ledger"\n', encoding="utf-8")
+    code, out, err = run(
+        ["account", "add", "current", "--currency", "GBP", "--config", str(config)], capsys
+    )
+    assert (code, out, err) == (0, "", "")
+    assert stat.S_IMODE((tmp_path / "conf" / "ledger" / "tally.sqlite").stat().st_mode) == 0o600
