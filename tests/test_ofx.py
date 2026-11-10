@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import codecs
+import time
 import tracemalloc
 from pathlib import Path
 
@@ -247,9 +249,10 @@ def test_ac41_repeated_tags_are_siblings_and_cost_bounded_memory(tmp_path: Path)
                 Transaction(2, "2026-10-02", "LAST", 200, "ofx:F2"),
             ],
         ),
-        (  # PAYEE's NAME and CURRENCY's inner leaves are not the transaction's own
+        (  # PAYEE's NAME and ORIGCURRENCY's inner leaves are not the transaction's own
             "<OFX><STMTTRN><FITID>F1<DTPOSTED>20261001<PAYEE><NAME>PAYEE NAME<ADDR1>1 HIGH ST"
-            "</PAYEE><CURRENCY><CURRATE>1.1<CURSYM>EUR</CURRENCY><TRNAMT>-1<MEMO>THE MEMO"
+            "</PAYEE><ORIGCURRENCY><CURRATE>1.1<CURSYM>EUR<TRNAMT>9</ORIGCURRENCY>"
+            "<TRNAMT>-1<MEMO>THE MEMO"
             "</STMTTRN></OFX>",
             [Transaction(1, "2026-10-01", "THE MEMO", -100, "ofx:F1")],
         ),
@@ -258,10 +261,31 @@ def test_ac41_repeated_tags_are_siblings_and_cost_bounded_memory(tmp_path: Path)
             "<NAME></NAME><MEMO/></STMTTRN></OFX>",
             [Unreadable(1, "no FITID"), Transaction(2, "2026-10-01", "", 100, "ofx:F1")],
         ),
-        (  # comments and processing instructions are skipped, whatever they hold
-            "<OFX><!-- <STMTTRN><FITID>HIDDEN<DTPOSTED>20261001<TRNAMT>1 --><?PI <STMTTRN> ?>"
-            "<STMTTRN><FITID>F1<DTPOSTED>20261001<TRNAMT>1<NAME>A<!-- > -->B</STMTTRN></OFX>",
-            [Transaction(1, "2026-10-01", "A", 100, "ofx:F1")],
+        (  # comments are skipped, whatever they hold, and a value runs on across one
+            "<OFX><!-- <STMTTRN><FITID>HIDDEN<DTPOSTED>20261001<TRNAMT>1 -->"
+            "<STMTTRN><FITID>F1<DTPOSTED>20261001<TRNAMT>-1<!---->000.00"
+            "<NAME>A<!-- > -->B</STMTTRN></OFX>",
+            [Transaction(1, "2026-10-01", "AB", -100000, "ofx:F1")],
+        ),
+        (  # tag names in any case, as SGML reads them
+            "<ofx><Stmttrn><fitid>F1<DtPosted>20261001<trnamt>1<name>LOWER</stmttrn></OFX>",
+            [Transaction(1, "2026-10-01", "LOWER", 100, "ofx:F1")],
+        ),
+        (  # CURRENCY says the amounts are in CURSYM; ORIGCURRENCY's are the account's already
+            "<OFX><CURDEF>GBP<STMTTRN><FITID>F1<DTPOSTED>20261001<TRNAMT>-1"
+            "<CURRENCY><CURRATE>0.8<CURSYM>USD</CURRENCY></STMTTRN>"
+            "<STMTTRN><FITID>F2<DTPOSTED>20261001<TRNAMT>-2"
+            "<ORIGCURRENCY><CURRATE>0.8<CURSYM>USD</ORIGCURRENCY></STMTTRN>"
+            "<STMTTRN><FITID>F3<DTPOSTED>20261001<TRNAMT>-3"
+            "<CURRENCY><CURRATE>1<CURSYM>gbp</CURRENCY></STMTTRN>"
+            "<STMTTRN><FITID>F4<DTPOSTED>20261001<TRNAMT>-4"
+            "<CURRENCY><CURSYM>US$</CURRENCY></STMTTRN></OFX>",
+            [
+                Unreadable(1, "the transaction is in another currency"),
+                Transaction(2, "2026-10-01", "", -200, "ofx:F2"),
+                Transaction(3, "2026-10-01", "", -300, "ofx:F3"),
+                Unreadable(4, "the transaction is in another currency"),
+            ],
         ),
         (  # no CURDEF: the account's currency, as for a CSV
             "<OFX><STMTTRN><FITID>F1<DTPOSTED>20261001<TRNAMT>1</OFX>",
@@ -281,6 +305,16 @@ def test_the_structure_is_read_in_sgmls_terms(
     assert read_all(ofx_file(tmp_path, SGML_HEADER + body)) == outcomes
     xml = ofx_file(tmp_path, XML_HEADER + body, name="statement.xml")
     assert read_all(xml) == outcomes
+
+
+def test_processing_instructions_are_skipped_in_xml_and_refused_in_sgml(tmp_path: Path) -> None:
+    body = "<OFX><?PI <STMTTRN> ?><STMTTRN><FITID>F1<DTPOSTED>20261001<TRNAMT>1<?x?>0</OFX>"
+    assert read_all(ofx_file(tmp_path, XML_HEADER + body)) == [
+        Transaction(1, "2026-10-01", "", 1000, "ofx:F1")
+    ]
+    # SGML ends a processing instruction at the first ">", so "?>" would hide a CURDEF.
+    sgml = ofx_file(tmp_path, SGML_HEADER + "<?pi > <CURDEF>USD ?>" + statement(GOOD), "s.ofx")
+    assert refusal(sgml) == "not a statement: a processing instruction, which SGML never holds"
 
 
 def test_entities_are_decoded_and_references_to_what_cannot_be_stored_stay_literal(
@@ -314,6 +348,8 @@ def test_entities_are_decoded_and_references_to_what_cannot_be_stored_stay_liter
         (SGML_HEADER.replace("CHARSET:1252\r\n", ""), b"\x80", "€"),
         (SGML_HEADER.replace("1252", "ISO-8859-1"), b"\xa3\x80", "£\x80"),
         (SGML_HEADER.replace("1252", "8859-1"), b"\xa3", "£"),
+        (SGML_HEADER.replace("USASCII", "UNICODE"), "CAFÉ €".encode(), "CAFÉ €"),
+        ('<?xml version="1.0" encoding="us-ascii"?>', b"CAFE", "CAFE"),
         (SGML_HEADER.replace("USASCII", "UTF-8"), "CAFÉ €".encode(), "CAFÉ €"),
         (XML_HEADER, "CAFÉ €".encode(), "CAFÉ €"),
         ('<?xml version="1.0"?>', "CAFÉ €".encode(), "CAFÉ €"),
@@ -352,12 +388,8 @@ def test_the_encoding_is_the_headers_once(
             "not a text file: not valid utf-8",
         ),
         (
-            b'<?xml version="1.0" encoding="UTF-16"?>' + statement(GOOD).encode(),
-            'not a text file: encoding "utf-16" is not supported',
-        ),
-        (
-            b'<?xml version="1.0" encoding="cp500"?>' + statement(GOOD).encode(),
-            'not a text file: encoding "cp500" is not supported',
+            b'<?xml version="1.0" encoding="ascii"?>' + statement(GOOD + "\xa3").encode("latin-1"),
+            "not a text file: not valid ascii",
         ),
         (
             b'<?xml version="1.0" encoding="no-such-codec"?>' + statement(GOOD).encode(),
@@ -373,6 +405,31 @@ def test_a_file_that_is_not_text_in_its_declared_encoding_is_refused_whole(
     tmp_path: Path, content: bytes, reason: str
 ) -> None:
     assert refusal(ofx_file(tmp_path, content)) == reason
+
+
+@pytest.mark.parametrize(
+    ("declared", "body"),
+    [
+        ("UTF-7", "<NAME>+2AA-"),  # a lone surrogate, which SQLite cannot store
+        ("unicode_escape", "<NAME>\\ud800"),
+        ("raw_unicode_escape", "<NAME>\\u0000"),
+        ("idna", "<NAME>X"),
+        ("iso2022_jp", "<NAME>X"),
+        ("hz", "<NAME>X"),
+        ("base64", "<NAME>X"),
+        ("utf-16", "<NAME>X"),
+        ("cp500", "<NAME>X"),
+        ("iso8859-15", "<NAME>X"),
+    ],
+)
+def test_only_the_encodings_ofx_uses_may_be_declared(
+    tmp_path: Path, declared: str, body: str
+) -> None:
+    content = f'<?xml version="1.0" encoding="{declared}"?>' + statement(GOOD + body)
+    canonical = codecs.lookup(declared).name
+    assert refusal(ofx_file(tmp_path, content)) == (
+        f'not a text file: encoding "{canonical}" is not supported'
+    )
 
 
 DOCTYPE = "the file declares a DOCTYPE, which statements never do"
@@ -410,13 +467,22 @@ BILLION_LAUGHS = (
         (SGML_HEADER + "no tags at all", "not a statement: the first tag is not <OFX>"),
         (SGML_HEADER + "<OFX><STMTTRN><FITID", "not a statement: the file ends inside a tag"),
         (SGML_HEADER + "<OFX><!-- never closed >", "not a statement: the file ends inside a tag"),
-        (SGML_HEADER + "<OFX><?never closed >", "not a statement: the file ends inside a tag"),
+        (XML_HEADER + "<OFX><?never closed >", "not a statement: the file ends inside a tag"),
         (
             SGML_HEADER + "<OFX><STMTRS><CURDEF>GBP</STMTRS><STMTRS><CURDEF>GBP</STMTRS></OFX>",
             "the file holds more than one statement",
         ),
         (
             SGML_HEADER + "<OFX><STMTRS></STMTRS><CCSTMTRS></CCSTMTRS></OFX>",
+            "the file holds more than one statement",
+        ),
+        (
+            SGML_HEADER + "<OFX><STMTRS></STMTRS><INVSTMTRS><INVTRANLIST><INVBANKTRAN>"
+            "<STMTTRN>" + GOOD + "</INVSTMTRS></OFX>",
+            "the file holds more than one statement",
+        ),
+        (
+            SGML_HEADER + "<OFX><LOANSTMTRS></LOANSTMTRS><stmtrs></stmtrs></OFX>",
             "the file holds more than one statement",
         ),
         (
@@ -443,6 +509,8 @@ def test_ac24_a_currency_that_is_not_the_accounts_is_refused_before_any_row(
         next(outcomes)
     late = ofx_file(tmp_path, SGML_HEADER + "<OFX><STMTTRN>" + GOOD + "<CURDEF>USD</OFX>")
     assert refusal(late) == "the file is in USD but the account is in GBP"
+    lower = ofx_file(tmp_path, SGML_HEADER + "<ofx><curdef>usd</ofx>", name="lower.ofx")
+    assert refusal(lower) == "the file is in USD but the account is in GBP"
 
 
 def test_a_value_or_tag_longer_than_one_megabyte_is_refused_and_one_megabyte_is_not(
@@ -463,6 +531,18 @@ def test_a_value_or_tag_longer_than_one_megabyte_is_refused_and_one_megabyte_is_
     assert refusal(tag) == too_long
     comment = ofx_file(tmp_path, SGML_HEADER + "<OFX><!--" + "c" * 3_000_000, name="c.ofx")
     assert refusal(comment) == too_long
+    split = "<OFX><STMTTRN><NAME>" + ("n" * 600_000 + "<!---->") * 2 + "</OFX>"
+    assert refusal(ofx_file(tmp_path, SGML_HEADER + split, name="split.ofx")) == too_long
+
+
+def test_a_million_digit_amount_is_refused_without_the_cost_of_converting_it(
+    tmp_path: Path,
+) -> None:
+    leaves = "<FITID>A<DTPOSTED>20261001<TRNAMT>" + "9" * 1_000_000
+    path = ofx_file(tmp_path, SGML_HEADER + statement(leaves).replace("\r\n</BANK", "</BANK"))
+    started = time.monotonic()
+    assert read_all(path) == [Unreadable(1, "amount is too large to store")]
+    assert time.monotonic() - started < 2  # converting it to an int takes about 20 s
 
 
 def test_a_file_that_vanished_between_the_first_bytes_and_the_read_is_refused(

@@ -35,7 +35,8 @@ log = logging.getLogger(__name__)
 
 # A transaction keeps only the leaves it reads, so other leaves cost nothing.
 _LEAVES = frozenset({"FITID", "DTPOSTED", "TRNAMT", "NAME", "MEMO"})
-_STATEMENTS = frozenset({"STMTRS", "CCSTMTRS"})
+_STATEMENTS = frozenset({"STMTRS", "CCSTMTRS", "INVSTMTRS", "LOANSTMTRS"})
+_DECLARED = frozenset({"utf-8", "cp1252", "iso8859-1", "ascii"})
 _AMOUNT = re.compile(r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)")  # OFX's one number shape
 _DATE = re.compile(r"([0-9]{4})([0-9]{2})([0-9]{2})")
 _CURRENCY = re.compile(r"[A-Za-z]{3}")
@@ -52,7 +53,7 @@ def _encoding(head: bytes, *, sgml: bool) -> str:
         for line in head.partition(b"<")[0].splitlines():
             key, _, value = line.partition(b":")
             fields[key.strip().upper()] = value.strip().upper()
-        if fields.get(b"ENCODING") == b"UTF-8":
+        if fields.get(b"ENCODING") in {b"UTF-8", b"UNICODE"}:  # OFX 1.0.2 wrote UNICODE
             return "utf-8"
         charset = fields.get(b"CHARSET", b"NONE").decode("ascii", "replace")
         if charset not in _CHARSETS:
@@ -67,11 +68,9 @@ def _encoding(head: bytes, *, sgml: bool) -> str:
         name = codecs.lookup(declared[1].decode("ascii")).name
     except LookupError:
         raise NotAStatementError("not a text file: the declared encoding is unknown") from None
-    try:
-        compatible = "<OFX>".encode(name) == b"<OFX>"
-    except LookupError, UnicodeError:  # a codec that is not a text encoding (base64, rot13)
-        compatible = False
-    if not compatible:  # UTF-16, UTF-7, EBCDIC: the scanner reads ASCII markup
+    # The encodings OFX files use. Many others write "<OFX>" as ASCII and still decode to
+    # what SQLite cannot store: UTF-7 and the escape codecs give lone surrogates.
+    if name not in _DECLARED:
         raise NotAStatementError(f'not a text file: encoding "{name}" is not supported')
     return name
 
@@ -95,7 +94,7 @@ def _decoded(handle: BinaryIO, head: bytes, encoding: str) -> Iterator[str]:
         raw = handle.read(CHUNK)
 
 
-def _markup_end(buffer: str, lt: int, *, end_of_file: bool) -> int:
+def _markup_end(buffer: str, lt: int, *, end_of_file: bool, sgml: bool) -> int:
     """Where the markup starting at ``lt`` ends, or -1 when the rest has not been read."""
     if len(buffer) - lt < len("<!DOCTYPE") and not end_of_file:
         return -1
@@ -103,6 +102,10 @@ def _markup_end(buffer: str, lt: int, *, end_of_file: bool) -> int:
     if head.startswith("<!--"):
         close, width = buffer.find("-->", lt + 4), 3
     elif head.startswith("<?"):
+        if sgml:  # SGML ends one at the first ">", XML at "?>": the two would read apart
+            raise NotAStatementError(
+                "not a statement: a processing instruction, which SGML never holds"
+            )
         close, width = buffer.find("?>", lt + 2), 2
     elif head.startswith("<!"):
         if head.upper() == "<!DOCTYPE":
@@ -113,37 +116,40 @@ def _markup_end(buffer: str, lt: int, *, end_of_file: bool) -> int:
     return -1 if close == -1 else close + width
 
 
-def _pieces(chunks: Iterable[str]) -> Iterator[tuple[bool, str]]:
+def _pieces(chunks: Iterable[str], *, sgml: bool) -> Iterator[tuple[bool, str]]:
     """Each tag (``True``) and each run of text between tags (``False``), in order.
 
-    Comments and processing instructions (the XML prolog, ``<?OFX ...?>``) are skipped.
+    Comments and XML processing instructions (the prolog, ``<?OFX ...?>``) are skipped,
+    and the text either side of one is one run, as an XML parser reads it.
     """
-    buffer = ""
+    buffer = run = ""
     for chunk in chain(chunks, [""]):
         end_of_file = not chunk
         buffer += chunk
         start = 0
         while (lt := buffer.find("<", start)) != -1:
-            if lt - start > MAX_PIECE:
+            run += buffer[start:lt]
+            start = lt
+            if len(run) > MAX_PIECE:
                 raise NotAStatementError(TOO_LONG)
-            if lt > start:
-                yield False, buffer[start:lt]
-                start = lt
-            stop = _markup_end(buffer, lt, end_of_file=end_of_file)
+            stop = _markup_end(buffer, lt, end_of_file=end_of_file, sgml=sgml)
             if stop == -1:
                 break
             if stop - lt > MAX_PIECE:
                 raise NotAStatementError(TOO_LONG)
             if not buffer.startswith(("<!--", "<?"), lt):
+                if run:
+                    yield False, run
                 yield True, buffer[lt:stop]
+                run = ""
             start = stop
         buffer = buffer[start:]
         if len(buffer) > MAX_PIECE:
             raise NotAStatementError(TOO_LONG)
     if buffer.startswith("<"):
         raise NotAStatementError("not a statement: the file ends inside a tag")
-    if buffer:
-        yield False, buffer
+    if run + buffer:
+        yield False, run + buffer
 
 
 def _reference(match: re.Match[str]) -> str:
@@ -171,11 +177,15 @@ def _day(text: str) -> str | None:
         return None
 
 
-def _outcome(position: int, leaves: dict[str, str], scale: int) -> Transaction | Unreadable:
+def _outcome(
+    position: int, leaves: dict[str, str], currency: str, scale: int
+) -> Transaction | Unreadable:
     """One ``STMTTRN`` as a ``Transaction`` with its ADR 0008 fingerprint, or why not."""
     for leaf in ("FITID", "DTPOSTED", "TRNAMT"):
         if leaf not in leaves:
             return Unreadable(position, f"no {leaf}")
+    if leaves.get("CURSYM", currency).upper() != currency:  # Tally never converts (AC36)
+        return Unreadable(position, "the transaction is in another currency")
     day = _day(leaves["DTPOSTED"])
     if day is None:
         return Unreadable(position, "DTPOSTED is not a date")
@@ -209,7 +219,7 @@ class _Reader:
         closing = inner.startswith("/")
         empty = inner.endswith("/")
         words = inner.strip("/").split(maxsplit=1)
-        name = words[0] if words else ""
+        name = words[0].upper() if words else ""  # SGML's names are case-insensitive
         if not self.started:
             if closing or name != "OFX":
                 raise NotAStatementError("not a statement: the first tag is not <OFX>")
@@ -230,8 +240,12 @@ class _Reader:
         value = _unescape(value)
         if name == "CURDEF":
             self._check_currency(value)
-        elif self.transaction is not None and self.stack[-1] == "STMTTRN" and name in _LEAVES:
+        elif self.transaction is None:
+            return
+        elif self.stack[-1] == "STMTTRN" and name in _LEAVES:
             self.transaction.setdefault(name, value)
+        elif self.stack[-2:] == ["STMTTRN", "CURRENCY"] and name == "CURSYM":
+            self.transaction.setdefault(name, value)  # the amounts are in this currency
 
     def finish(self) -> None:
         if not self.started:
@@ -267,7 +281,8 @@ class _Reader:
             top = self.stack.pop()
             if top == "STMTTRN":
                 self.position += 1
-                self.ready.append(_outcome(self.position, self.transaction or {}, self.scale))
+                leaves = self.transaction or {}
+                self.ready.append(_outcome(self.position, leaves, self.currency, self.scale))
                 self.transaction = None
             if top == name:
                 return
@@ -296,7 +311,7 @@ def read(path: Path, currency: str, scale: int) -> Iterator[Transaction | Unread
         encoding = _encoding(head, sgml=sgml)
         log.info("reading %s as OFX %s in %s", path, "SGML" if sgml else "XML", encoding)
         reader = _Reader(currency, scale)
-        for is_markup, piece in _pieces(_decoded(handle, head, encoding)):
+        for is_markup, piece in _pieces(_decoded(handle, head, encoding), sgml=sgml):
             if is_markup:
                 reader.markup(piece)
             else:

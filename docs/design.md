@@ -194,7 +194,7 @@ Each becomes a test named `test_acNN_...`. "Refused" always means: a message on 
 #### AC20. The import summary is also machine-readable
 - **Given** any import
 - **When** run with `--format json`
-- **Then** standard output is one JSON object `{"account", "file", "added", "duplicates", "unreadable": [{"line", "reason"}]}` and nothing else; the human form goes to standard output without `--format`
+- **Then** standard output is one JSON object `{"account", "file", "added", "duplicates", "unreadable": [{"line", "reason"}]}` and nothing else, where an OFX file's entries carry `"transaction"` (its position, as AC25 counts it) in place of `"line"`; the human form goes to standard output without `--format`
 
 #### AC40. A monstrous field does not crash the import
 - **Given** a CSV with a 50 MB single quoted field on line 4
