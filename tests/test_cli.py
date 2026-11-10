@@ -47,4 +47,4 @@ def test_help_names_the_command_and_what_it_is_for(capsys: pytest.CaptureFixture
     assert raised.value.code == 0
     out = capsys.readouterr().out
     assert out.startswith("usage: tally [-h] [--version] <command> ...")
-    assert "See where your money goes, from your bank's statement files." in out
+    assert "\nSee where your money goes, from your bank's statement files.\n" in out
