@@ -136,12 +136,13 @@ jobs:
         with:
           version: "0.13.7"
           enable-cache: true
+      # The lockfile only points at PyPI over HTTPS with a hash on every
+      # file (the Python side of lockfile-lint). Before anything installs
+      # from it, with the runner's own Python.
+      - name: Lockfile integrity
+        run: python3 scripts/check_lock.py
       - name: Install
         run: uv sync --locked
-      # The lockfile only points at PyPI over HTTPS with a hash on every
-      # file (the Python side of lockfile-lint).
-      - name: Lockfile integrity
-        run: uv run python scripts/check_lock.py
       # pip-audit over the exported lockfile, with a dated allowlist for
       # advisories nobody can fix yet (scripts/audit-allowlist.json).
       - name: Dependency audit
