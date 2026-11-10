@@ -16,6 +16,7 @@ docs/python-pack/README.md.
 from __future__ import annotations
 
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -48,6 +49,9 @@ def main(argv: list[str]) -> int:
         print("No source file under src/tally changed: nothing to mutate.")
         return 0
     patterns = [pattern_for(path) for path in files]
+    # mutmut's stats (which test reaches which function) are incremental: a function
+    # added since the last run is mapped only to tests added since, so start clean.
+    shutil.rmtree("mutants", ignore_errors=True)
     print("Mutating:", " ".join(patterns))
     run = subprocess.run(["uv", "run", "mutmut", "run", *patterns], check=False)
     if run.returncode != 0:
