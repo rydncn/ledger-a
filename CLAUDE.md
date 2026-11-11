@@ -81,3 +81,4 @@ Decisions and the options rejected for them are in `docs/decisions/`. Read the r
 - `int()` of a huge `Decimal` costs its length squared (1.6 s for 300,000 digits), and an amount's length is the file's choice: bound the digits before converting, as `to_minor` does.
 - A probe beats a guess about a library: `html.unescape` follows HTML5 (`&ampfoo` is `&foo`), `strptime("2026111", "%Y%m%d")` is 1 November, and `\d` matches Arabic-Indic digits that `int` and `Decimal` accept. One line in the interpreter before choosing the function.
 - A fresh cloud checkout has no local `origin/main`: run `git fetch origin main` before anything diffs against it (the mutation script does).
+- When a lesson is added here, grep the codebase for every place its pattern already appears and fix them in the same change: the codec allowlist and `[0-9]` were learnt in the OFX importer, and the CSV importer and `money.py` kept the flaw until the whole-codebase review.

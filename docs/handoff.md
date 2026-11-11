@@ -6,32 +6,18 @@ Where the work is, for the next session. The work, not the machine: tools come f
 
 - **Slices 0 to 2** merged: foundation (#1), accounts and the data file (#6), CSV import (#7 and #8).
 - **Slice 3 (OFX import)** merged as pull request [#9](https://github.com/rydncn/ledger-a/pull/9) (3b21163), merged by the agent at the owner's explicit request once every CI job was green; ADR 0007 has the owner merge, so this was the owner's delegation, not a change of rule. It delivers `importers/ofx.py`, one scanner for OFX 1.x SGML and 2.x XML (no XML parser runs), and `tally import --account NAME FILE` for an OFX file. The plan is `docs/plans/003-ofx-import.md`; the review, the mutation rulings and the decisions kept are in #9's description.
-- **The whole-codebase review has run** (slice 3 session, on `main` at 3b21163, a subagent in a worktree without the plans, this file or the trial records, briefed with `docs/review-brief.md`). Its findings are below. **Next, first: fix them** on branch `whole-codebase-review` (already pushed from `main` with this file), test-first, in their own pull request before slice 4's plan. Re-create each probe as a failing test; the reviewer's probe scripts lived in the old container's scratchpad and are gone.
+- **The whole-codebase review has run** (on `main` at 3b21163) and its findings are fixed in pull request [#10](https://github.com/rydncn/ledger-a/pull/10) on `whole-codebase-review`, with a fresh-context review of the fixes and its five findings fixed too. Merge #10 before slice 4 starts. What it changed that slice 4 builds on is under "Decisions" below; what it left for the owner is under "Open".
 - **Then: slice 4**, categorisation: rules, `tally uncategorised`, `tally explain`; AC26 to AC29 and AC38.
 
-## The whole-codebase review's findings
+## What the whole-codebase review changed
 
-Must fix:
-1. **Account ids are reused, and `forget` and `import` act on an id read before the lock.** `accounts.id INTEGER PRIMARY KEY` without `AUTOINCREMENT` hands a forgotten account's id to the next `add`. Reproduced by the slice 3 session: copy A reads `current` (id 2) and waits at the forget prompt; copy B forgets `current`, adds `joint` (id 2) and imports a row; A's "yes" then deletes `joint`'s transactions. `import` has the same window (the lookup is before `BEGIN IMMEDIATE`, which can wait 10 s), so a file parsed with one account's currency can land in another's. Fix inside the write transaction: re-select `WHERE id = ? AND name = ?` (and the currency for import) and refuse if it changed; count the transactions there too. `AUTOINCREMENT` would also do it but is a migration (one-way).
-2. **Unreadable rows cost about 100 times the file's size in memory.** `Store.import_transactions` keeps every `Unreadable` until the commit: an 8 MB CSV of `x\n` lines grew peak RSS by 824 MB, a 57 MB OFX of empty `STMTTRN` by 468 MB, against `CLAUDE.md`'s "bounded memory". AC18 measures only valid rows. Keeping the first 50 and a count collides with AC13 and AC20 ("the JSON lists them all"): **the owner decides** between capping the JSON list with a count, or spooling the rows to a temporary table.
-
-Should fix:
-3. **CSV layouts accept any codec**, where OFX has an allowlist (the `CLAUDE.md` lesson): `encoding = "utf-7"`, `unicode_escape` or `raw_unicode_escape` with `+2D8-` or `\ud800` in the file is a `UnicodeEncodeError` traceback showing a decoded character. Fix: the same allowlist, as a configuration error (exit 2).
-4. **Tracebacks instead of one line** (AC34, and the lifecycle's "the disk fails"): a damaged data file (`database disk image is malformed`) or a full disk, because `main` does not catch `sqlite3.Error`; a statement path that is not valid UTF-8 (`UnicodeEncodeError` at the import record's `INSERT`); a deeply nested `tally.toml` (`RecursionError` from `tomllib`, should be exit 2).
-5. **An unclosed quote in a CSV swallows the rows after it** (the `csv` module reads on to the closing quote): a quote opened on line 3 of six rows gave `added 1, unreadable 1` with `line 7: expected 3 columns, found 2`. Report the line the record started on, and say when it spans lines.
-6. **The rule checks match words, not imports:** `from urllib import request as r`, `from http import client`, `import ssl`, `asyncio.open_connection` and `1 / 3` all pass `check-rules.js`. Fix: an AST check that every import under `src/` is on an allowlist of standard-library modules, beside the word checks.
-7. **`money.parse_amount` uses `\d`** (`parse_amount("١٢٣.٤٥")` is 123.45, fullwidth digits too), where `ofx.py` uses `[0-9]`; `strptime` on CSV dates also takes them. **`money.from_minor` uses `scaleb`**, which a lesson forbids (exact today only because minor units are at most 19 digits): build it from a tuple.
-8. **The documents no longer match the code:** ADR 0001 says `xml.etree` reads OFX XML, and AC39 says the DOCTYPE check is "on the first bytes before any XML parser runs"; no XML parser runs and the DOCTYPE is refused wherever it appears. Write an ADR replacing that part of 0001 and correct AC39. `CLAUDE.md` says every importer is tested with formula-looking descriptions; the OFX tests have none.
-9. **`argparse` accepts abbreviations** (`account add c --cur GBP --data D`, `account list --form json`), which makes every prefix part of the command-line shape: `allow_abbrev=False` on every parser.
-
-Agent configuration, **for the owner** (rule 18; the agent changes none of it on a reviewer's say-so):
-- The "ask first" rules in `.claude/settings.json` miss `gh api ... /merge`, `git -C . push origin main`, `env git push ...` and every push to a feature branch, while `CLAUDE.md` says publishing and pushing ask first. Either widen the rules or make `CLAUDE.md` say what is enforced.
-- The plugin marketplace `rydncn/ai-playbook` is not pinned to a commit, so its default branch becomes hooks and instructions in every session.
-- `node scripts/check-rules.js` runs only in CI, not in `.claude/checks.json`'s `beforeStop` or `pre-push`.
-
-Also for the owner: whether a data directory on a network or synced folder is supported (WAL needs shared memory on one host), and whether an OFX file should be checked against the account (no `ACCTID` is stored).
-
-Checked and sound: the store's rollback, migrations re-checked under the lock, WAL readers of a `0400` file or `0500` directory as `nobody`, the creation modes, OFX's NUL, surrogate, depth and size limits, the fingerprint format, the bound before `int()`, the hooks (no shell), and CI (pinned actions, minimal permissions, checked downloads).
+- `forget` and `import` check the account's id, name and currency again under the lock (SQLite reuses a forgotten account's id); `forget` after a prompt refuses when the count changed since the person confirmed it.
+- An import keeps the first 1,000 unreadable rows and counts the rest: the JSON has `unreadable_count`, and AC13 and AC20 say so.
+- One encoding allowlist for both importers (`importers/__init__.py::ENCODINGS`): UTF-8 with or without a byte order mark, cp1252, Latin-1, Latin-9, ASCII (AC43).
+- A damaged data file, a full disk, a path that is not UTF-8 and a too-deep `tally.toml` are one line, not a traceback.
+- A CSV record an open quote carries over lines is reported on the line it starts on, `in a record that runs to line N`.
+- `scripts/check_imports.py` (in CI after the rule checks) reads every import under `src/` from the syntax tree against an allowed list of exact names, and refuses `__import__`, `__builtins__`, `exec`, `eval` and float literals. **Slice 4 adds no import outside that list without adding it there, as a decision.**
+- Amounts take ASCII digits only; `from_minor` is built from digits. `argparse` refuses abbreviated options. ADR 0009 records the OFX scanner.
 
 ## How a slice goes
 
@@ -70,3 +56,4 @@ Checked and sound: the store's rollback, migrations re-checked under the lock, W
 - From the slice 3 review: the store keeps every unreadable row in memory for the summary (AC13's JSON lists them all), so 2.3 million empty `STMTTRN` peaked at about 1 GB. This predates slice 3 and is the same for CSV; capping it changes AC13 and AC20.
 - Numeric references to control characters (`&#27;`) are decoded, as a raw ESC byte in a CSV reaches the data file unchanged; AC38 must replace them on the terminal.
 - The full suite takes about 60 s (AC18 under `tracemalloc` is 28 s of it, the two AC8 waits 20 s), and the stop hook runs it on every stop. If it passes 90 s, move the slow tests behind a marker the hook skips and CI runs, and record the ADR.
+- From the whole-codebase review, for the owner (agent configuration, rule 18, unchanged): the "ask first" rules in `.claude/settings.json` miss `gh api ... /merge`, `git -C . push origin main`, `env git push ...` and every feature-branch push, while `CLAUDE.md` says publishing and pushing ask first; the plugin marketplace is not pinned to a commit; `scripts/check-rules.js` and `scripts/check_imports.py` run only in CI, not in the before-stop hook or `pre-push`. Also undecided: whether a data directory on a network or synced folder is supported (WAL needs shared memory on one host).
