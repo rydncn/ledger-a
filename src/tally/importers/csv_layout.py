@@ -151,7 +151,7 @@ class _Lines:
         self._handle = handle
         self._encoding = encoding
         self.number = 0
-        self.taken = 0
+        self.taken = 0  # pragma: no mutate (read resets it before every record)
 
     def __iter__(self) -> _Lines:
         return self

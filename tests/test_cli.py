@@ -6,6 +6,7 @@ through a real subprocess, so the installed entry point is proved too.
 
 from __future__ import annotations
 
+import argparse
 import io
 import os
 import subprocess
@@ -15,7 +16,7 @@ from pathlib import Path
 import pytest
 
 from tally import __version__
-from tally.cli import main
+from tally.cli import existing_name, main
 
 
 def test_version_is_printed(capsys: pytest.CaptureFixture[str]) -> None:
@@ -315,3 +316,10 @@ def test_ac34_a_closed_standard_output_ends_quietly_in_a_real_process(tmp_path: 
     finally:
         os.close(write_end)
     assert (result.returncode, result.stderr) == (1, b"")
+
+
+def test_an_account_to_look_up_must_not_be_empty() -> None:
+    with pytest.raises(argparse.ArgumentTypeError) as raised:
+        existing_name("  ")
+    assert str(raised.value) == "must not be empty"
+    assert existing_name(" joint ") == "joint"

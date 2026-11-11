@@ -170,18 +170,19 @@ def _now() -> str:
 FINGERPRINT_TAKEN = "its FITID is already used by a different transaction"
 
 
-def _same(connection: sqlite3.Connection, account: Account, row: Transaction) -> bool:
-    """Whether the row already stored under this fingerprint has the same date and amount.
+def _taken(connection: sqlite3.Connection, account: Account, row: Transaction) -> bool:
+    """Whether this fingerprint is already stored for a different date or amount.
 
-    A CSV fingerprint holds both, so only an OFX FITID can be reused for a different
-    transaction (ADR 0012). The description may differ: a bank's re-export renames payees.
+    A fingerprint is the file's claim: only an OFX FITID can be reused for a different
+    transaction, since a CSV fingerprint holds both (ADR 0012). The description may differ:
+    a bank's re-export renames payees.
     """
     found = connection.execute(
-        "SELECT 1 FROM transactions WHERE account_id = ? AND fingerprint = ?"  # pragma: no mutate
-        " AND date = ? AND amount_minor = ?",  # pragma: no mutate
-        (account.id, row.fingerprint, row.date, row.amount_minor),
+        "SELECT date, amount_minor FROM transactions"  # pragma: no mutate
+        " WHERE account_id = ? AND fingerprint = ?",  # pragma: no mutate
+        (account.id, row.fingerprint),
     ).fetchone()
-    return found is not None
+    return found is not None and tuple(found) != (row.date, row.amount_minor)
 
 
 SIDE_FILES = ("-wal", "-shm", "-journal")  # what SQLite opens beside the data file
@@ -230,7 +231,9 @@ class Store:
                 side.chmod(0o600)
                 tightened = True
         if not path.exists():
-            os.close(os.open(path, os.O_CREAT | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0), 0o600))
+            # no mutate: the lstat check above refuses a link first; O_NOFOLLOW guards a race
+            nofollow = getattr(os, "O_NOFOLLOW", 0)  # pragma: no mutate
+            os.close(os.open(path, os.O_CREAT | os.O_WRONLY | nofollow, 0o600))
         connection = sqlite3.connect(  # autocommit: Python opens no transaction of its own
             path,
             timeout=BUSY_TIMEOUT_SECONDS,
@@ -242,7 +245,7 @@ class Store:
                 _switch_to_wal(connection)
                 connection.execute("PRAGMA foreign_keys=ON")  # pragma: no mutate
                 # forget means gone: freed pages are zeroed, in the WAL and the file
-                connection.execute("PRAGMA secure_delete=ON")
+                connection.execute("PRAGMA secure_delete=ON")  # pragma: no mutate (SQL case)
                 store._migrate()
         except sqlite3.DatabaseError as error:
             connection.close()
@@ -385,7 +388,9 @@ class Store:
                 " VALUES (?, ?, ?, 0, 0, 0) RETURNING id",  # pragma: no mutate
                 (account.id, file, _now()),
             ).fetchone()
-            for outcome in outcomes:
+            for read in outcomes:
+                taken = not isinstance(read, Unreadable) and _taken(connection, account, read)
+                outcome = Unreadable(read.line, FINGERPRINT_TAKEN) if taken else read
                 if isinstance(outcome, Unreadable):
                     unreadable_count += 1
                     if unreadable_count <= UNREADABLE_KEPT:  # a flood of them costs a count
@@ -408,12 +413,8 @@ class Store:
                 ).rowcount
                 if inserted:
                     added += 1
-                elif _same(connection, account, outcome):
+                else:
                     duplicates += 1
-                else:  # a fingerprint is the file's claim; a different row under it is no repeat
-                    unreadable_count += 1
-                    if unreadable_count <= UNREADABLE_KEPT:
-                        unreadable.append(Unreadable(outcome.line, FINGERPRINT_TAKEN))
             connection.execute(
                 "UPDATE imports SET added = ?, duplicates = ?, unreadable = ?"  # pragma: no mutate
                 " WHERE id = ?",  # pragma: no mutate

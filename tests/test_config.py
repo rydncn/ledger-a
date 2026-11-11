@@ -144,3 +144,9 @@ def test_data_dir_order_is_flag_variable_config_default(
     monkeypatch.setenv("TALLY_DATA_DIR", str(tmp_path / "variable"))
     assert data_dir_for(None, configured) == tmp_path / "variable"
     assert data_dir_for(str(tmp_path / "flag"), configured) == tmp_path / "flag"
+
+
+def test_a_data_directory_holding_a_nul_is_refused_by_name() -> None:
+    with pytest.raises(ConfigError) as raised:
+        data_dir_for("a" + chr(0) + "b", Config(path=None, data_dir=None))
+    assert str(raised.value) == "the data directory's name must not hold a NUL character"

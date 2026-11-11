@@ -71,8 +71,6 @@ def parse_amount(text: str, decimal: str, thousands: str) -> Decimal:
     bracketed = s.startswith("(") and s.endswith(")")
     if bracketed:
         s = s[1:-1]
-    if "(" in s:
-        raise AmountError(NOT_A_NUMBER)
     negations = int(bracketed)
     if s and s[0] in _SIGNS:
         negations += s[0] == "-"

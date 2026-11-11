@@ -617,8 +617,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     except BrokenPipeError:
         # Whoever read standard output went away (``| head``): nothing to say, and nothing
         # more may be written, or the interpreter reports the pipe again as it exits.
-        with contextlib.suppress(OSError, ValueError):
-            os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        # no mutate: only a real process flushes at exit, and mutmut sees no subprocess; the
+        # closed-pipe subprocess test fails without these two lines
+        quiet = contextlib.suppress(OSError, ValueError)  # pragma: no mutate
+        with quiet:
+            devnull = os.open(os.devnull, os.O_WRONLY)  # pragma: no mutate
+            os.dup2(devnull, sys.stdout.fileno())  # pragma: no mutate
         return EXIT_REFUSED
     return code
 
