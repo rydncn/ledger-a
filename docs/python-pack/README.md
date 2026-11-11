@@ -4,9 +4,9 @@
 
 | File | Copy to | What it does |
 | --- | --- | --- |
-| [`checks.json`](checks.json) | `.claude/checks.json` | The edit hook formats the edited file with `ruff format` and lints it with `ruff check`; the stop hook runs the format check, the lint, `mypy` and the tests. |
+| [`checks.json`](checks.json) | `.claude/checks.json` | The edit hook formats the edited file with `ruff format` and lints it with `ruff check`; the stop hook runs the format check, the lint, `mypy` and the tests. A project with `scripts/rules.json` or an import allowlist adds those two to `beforeStop`, as Tally's does: otherwise they run only in CI and `pre-push`. |
 | [`ci.yml`](ci.yml) | `.github/workflows/ci.yml` | Format, lint, types and rule checks on every push; shuffled parallel tests, mutation testing on changed files, lockfile integrity, `pip-audit`, gitleaks, zizmor and the agent configuration step once the pull request is ready. |
-| [`pre-push`](pre-push) | `.claude/hooks/pre-push` | Format, lint and type check before any push, for tools and people outside Claude Code. |
+| [`pre-push`](pre-push) | `.claude/hooks/pre-push` | Refuses a push to `main` or `master` however the command spells it, then format, lint, type check, and the project's rule checks and import allowlist where it has them, before any push, for tools and people outside Claude Code. |
 | [`mutation_changed.py`](mutation_changed.py) | `scripts/` | Rule 15's mutation testing on the files a change touches, with mutmut. |
 | [`audit.py`](audit.py) | `scripts/` | `pip-audit` over the exported lockfile with a dated allowlist, like `templates/audit`. |
 | [`check_lock.py`](check_lock.py) | `scripts/` | The lockfile only points at PyPI over HTTPS with a sha256 on every file, like lockfile-lint. |
@@ -43,6 +43,11 @@ Beside the template's deny and ask rules: `Bash(uv run --no-build ruff *)`, `Bas
 - **mutmut's stats are incremental.** `mutants/mutmut-stats.json` maps each function to the tests that reached it; a function added after the first run is mapped only to tests added after it, so its mutants are judged by too few tests and a `while True` became `while False` unseen. `scripts/mutation_changed.py` deletes `mutants/` before each run; CI starts clean anyway.
 - **mutmut 3 config keys:** `source_paths` (not the deprecated `paths_to_mutate`) and the tests directory through pytest's own arguments; it copies `tests/`, `pyproject.toml` and `uv.lock` into `mutants/` itself.
 - **The pack's pieces need Node too:** the hooks and the rule check are Node scripts, which the playbook says; a Python-only machine needs Node installed for them. GitHub's runners have it.
+
+- **The shell is a blind spot for the after-edit hook.** Edits made with a heredoc or `sed` get no format or lint feedback; in the trial's last session the `pre-push` lint caught two such edits before anything left. The rule check `no-raw-control-character` (C0 but tab and line feed, and DEL, in source) makes the `chr()` lesson a gate for ESC and its kind; ruff's RUF001 and PLE2502 cover the dashes and the bidi overrides.
+- **`--end-of-options` before a ref from the command line** (`mutation_changed.py`): a base starting `--` was passed to `git diff` as an option.
+- **Never allow `pip-audit*` by prefix.** Without `--disable-pip`, `pip-audit -r <file>` pip-installs the file and ran its build backend in the trial's audit, whatever `UV_NO_BUILD` said. Allow the audit script by name.
+- **A security audit's sandbox in a cloud container:** `unshare -m -n -p -f`, a recursive read-only remount of `/` with the agent's scratch bound writable, `env -i` with a short allowlist, and `prlimit`. The trial wrote it for the audit (`~/security-audit-skill/<repo>/run-<n>/bin/sandbox.sh`); it belongs here or in the skill.
 
 ## Measuring a session
 
