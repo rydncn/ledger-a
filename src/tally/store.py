@@ -299,9 +299,8 @@ class Store:
 
     def entries(self) -> Iterator[Entry]:
         """Every transaction, oldest first; only reads, so it never waits on a writer (ADR 0005)."""
-        for row in self._connection.execute(
-            f"{_ENTRIES} ORDER BY t.date, t.id"
-        ):  # pragma: no mutate
+        query = f"{_ENTRIES} ORDER BY t.date, t.id"  # pragma: no mutate
+        for row in self._connection.execute(query):
             yield Entry(*row)
 
     def entry(self, transaction_id: int) -> Entry | None:

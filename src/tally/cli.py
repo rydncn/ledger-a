@@ -64,9 +64,8 @@ def account_name(text: str) -> str:
 def transaction_id(text: str) -> int:
     # ASCII digits, never int() alone: it reads " 4", "4_0" and Arabic-Indic digits too. The
     # length bounds int()'s cost; no mutate: 20 digits are always refused by 2**63 as well.
-    if (
-        not (text.isascii() and text.isdigit() and len(text) <= 19) or int(text) >= 2**63
-    ):  # pragma: no mutate
+    short = len(text) <= 19  # pragma: no mutate
+    if not (text.isascii() and text.isdigit() and short) or int(text) >= 2**63:
         raise argparse.ArgumentTypeError("not a transaction id")
     return int(text)
 

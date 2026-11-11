@@ -43,12 +43,19 @@ Each task: the test first, seen to fail for the right reason, then the code, the
 
 ### Task 3: What mutation testing and the fresh-context review found
 
-- **Observed by:** _(filled in as it happens)_
+- **Observed by:**
+  - **The fresh-context review** (subagent, worktree at 6e724bb without the plans, the handoff or the trial records, the diff without the plan, `docs/review-brief.md`, with `re`, `tomllib`, `Decimal`, SQLite, the terminal and the spreadsheet named): 2 should-fix findings and 3 questions for a person.
+    - Fixed, test-first: a `data_dir` holding `\x1b]0;pwned\x07` reached standard error raw through the `OSError` message. Every message `main` prints now goes through `printable`; `test_ac38_a_control_character_in_a_data_directory_error_is_replaced` failed first with the raw bytes in standard error.
+    - Fixed, test-first: a CSV text cell starting with a tab or carriage return was replaced before the formula check, so it was `␉X` with no `'`, against AC32's wording. The prefix is now decided by the original text (`'␉X`); `test_ac32_a_csv_cell_is_prefixed_by_what_the_text_starts_with` failed first on both cases.
+    - Ruled, not fixed: `csv.writer(sys.stdout)` would write `\r\r\n` on Windows. Windows is outside the test run and slice 5's export shares the writer; the handoff names the fix to decide there.
+    - For the owner: amounts in a currency without two decimal places against AC35's "two decimals"; `uncategorised` holding every row before printing.
+  - **Mutation testing, on the tree after the review's fixes:** 986 mutants, 10 survived, all in `cli.py`. One was a gap: `explain` with the store opened without the configuration survived because no test took `data_dir` from `tally.toml`; `test_the_data_directory_comes_from_the_configuration_too` now does, for both commands. Eight were the two commands' `--format` defaults (`None`, absent, `XXtableXX` and its case), equivalent because the table is the branch for anything not CSV or JSON, ruled with `pragma: no mutate` and that reason. The last was the id's 19-digit bound as 20, equivalent because 20 digits are always at least 2^63; ruled.
+  - **The confirming run:** 976 mutants, 1 survived: the id bound again, because the formatter had split the condition and left the pragma on the closing bracket. The bound now has a line of its own with the pragma. A third run on the final tree is in the pull request.
 
 ## Done when
 
-- [ ] Every criterion above has a `test_acNN_` test seen to fail before its code and pass after
+- [x] Every criterion above has a `test_acNN_` test seen to fail before its code and pass after
 - [ ] The five checks pass locally and in CI; mutation testing has no survivors, or each is ruled on beside the code
-- [ ] The fresh-context review of the slice has run with the four questions answered by name; findings fixed test-first or ruled on
-- [ ] `docs/effort.md`, `docs/trial-log.md`, `docs/playbook-feedback.md` have this slice's rows; `docs/handoff.md` says where slice 5 starts
+- [x] The fresh-context review of the slice has run with the four questions answered by name; findings fixed test-first or ruled on
+- [x] `docs/effort.md`, `docs/trial-log.md`, `docs/playbook-feedback.md` have this slice's rows; `docs/handoff.md` says where slice 5 starts
 - [ ] The pull request is out of draft with CI green on its final commit
