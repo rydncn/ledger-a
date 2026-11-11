@@ -12,6 +12,7 @@ flagged: ``/`` also joins paths, which a syntax tree cannot tell apart.
 from __future__ import annotations
 
 import ast
+import importlib.util
 import sys
 from pathlib import Path
 
@@ -23,6 +24,7 @@ ALLOWED = frozenset(
         "argparse",
         "codecs",
         "collections",
+        "collections.abc",
         "contextlib",
         "csv",
         "dataclasses",
@@ -45,29 +47,55 @@ ALLOWED = frozenset(
         "unicodedata",
     }
 )
+# Names that reach an import, or run text as code, without an import statement.
+DYNAMIC = frozenset({"__import__", "__builtins__", "builtins", "exec", "eval", "compile"})
+
+
+def allowed(module: str) -> bool:
+    """Exact names only: ``logging`` is allowed and ``logging.handlers`` (sockets) is not."""
+    return module in ALLOWED or module.startswith("tally.")
+
+
+def is_module(name: str) -> bool:
+    """Whether ``from X import Y`` brings in a module ``X.Y`` rather than a name inside X."""
+    try:
+        return importlib.util.find_spec(name) is not None
+    except ImportError, ValueError:  # X is not a package: Y is a name inside it
+        return False
+
+
+def imported(node: ast.AST) -> list[str]:
+    if isinstance(node, ast.Import):
+        return [alias.name for alias in node.names]
+    if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+        inner = [f"{node.module}.{alias.name}" for alias in node.names]
+        return [node.module, *(name for name in inner if is_module(name))]
+    return []  # a relative import reaches only inside tally
 
 
 def problems(path: Path) -> list[str]:
+    """Each import, dynamic import and float literal in the file that Tally does not allow.
+
+    A guard against careless code, not a sandbox: it reads names, so ``exec``,
+    ``eval`` and the ways to reach ``__import__`` are refused outright.
+    """
     text = path.read_text(encoding="utf-8")
     lines = text.splitlines()
     found = []
     for node in ast.walk(ast.parse(text, str(path))):
-        line: int = getattr(node, "lineno", 1)
-        if "rules-check-ignore:" in lines[line - 1]:
+        line: int = getattr(node, "lineno", 0)
+        if 0 < line <= len(lines) and "rules-check-ignore:" in lines[line - 1]:
             continue  # the same exemption check-rules.js honours, with its reason on the line
-        names: list[str] = []
-        if isinstance(node, ast.Import):
-            names = [alias.name for alias in node.names]
-        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-            names = [node.module]
-        elif isinstance(node, ast.Call) and getattr(node.func, "id", "") == "__import__":
+        if isinstance(node, ast.Name) and node.id in DYNAMIC:
+            found.append(f"{path}:{line}: {node.id} is not allowed")
+        elif isinstance(node, ast.Constant) and node.value == "__import__":
             found.append(f"{path}:{line}: __import__ is not allowed")
         elif isinstance(node, ast.Constant) and isinstance(node.value, float):
             found.append(f"{path}:{line}: a float literal; amounts are exact")
         found += [
             f"{path}:{line}: imports {name}, which is not on the allowed list"
-            for name in names
-            if name.split(".")[0] not in ALLOWED
+            for name in imported(node)
+            if not allowed(name)
         ]
     return found
 

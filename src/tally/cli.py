@@ -155,7 +155,7 @@ def _forget(args: argparse.Namespace, store: Store) -> int:
         sys.stderr.flush()
         if sys.stdin.readline().strip() != "yes":
             raise RefusedError("nothing forgotten")
-    count = store.forget_account(account)  # counted again under the lock
+    count = store.forget_account(account, expected=None if args.yes else count)
     print(f'forgot account "{account.name}" and its {count} transactions', file=sys.stderr)
     return EXIT_OK
 

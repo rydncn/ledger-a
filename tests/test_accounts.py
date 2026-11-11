@@ -12,6 +12,8 @@ from pathlib import Path
 import pytest
 
 from tally.cli import main
+from tally.importers import Transaction
+from tally.store import RefusedError, Store
 
 
 def run(argv: list[str], capsys: pytest.CaptureFixture[str]) -> tuple[int, str, str]:
@@ -76,6 +78,35 @@ class Terminal:
 
     def readline(self) -> str:
         return self.answer
+
+
+def test_ac03_forget_refuses_when_the_account_changed_after_the_person_confirmed(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The prompt names a count; if another copy imports before "yes", nothing is deleted."""
+    add(tmp_path, "current", "GBP", capsys)
+
+    class Busy(Terminal):
+        def readline(self) -> str:
+            with Store.open(tmp_path) as other:
+                account = other.account("current")
+                assert account is not None
+                other.import_transactions(
+                    account, "late.csv", [Transaction(2, "2026-10-01", "x", -1, "csv:late")]
+                )
+            return "yes\n"
+
+    monkeypatch.setattr("sys.stdin", Busy("yes\n"))
+    code, out, err = run(["account", "forget", "current", "--data-dir", str(tmp_path)], capsys)
+    assert (code, out) == (1, "")
+    assert err.endswith("nothing forgotten: the account changed after it was read\n")
+    with Store.open(tmp_path) as store:
+        account = store.account("current")
+        assert account is not None
+        assert store.transaction_count(account) == 1
+        with pytest.raises(RefusedError, match=r"^nothing forgotten: the account changed"):
+            store.forget_account(account, expected=0)
+        assert store.forget_account(account, expected=1) == 1
 
 
 def test_ac01_add_an_account(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

@@ -318,10 +318,11 @@ class Store:
             )
         return ImportSummary(added, duplicates, unreadable, unreadable_count)
 
-    def forget_account(self, account: Account) -> int:
+    def forget_account(self, account: Account, expected: int | None = None) -> int:
         """Delete the account, its transactions and its import records, all or nothing (AC3).
 
-        Returns how many transactions went, counted under the lock.
+        ``expected`` is the count the person confirmed: if another copy changed the
+        account since, nothing is deleted. Returns how many transactions went.
         """
         with self.write() as connection:
             _still_present(connection, account)
@@ -329,6 +330,8 @@ class Store:
                 "DELETE FROM transactions WHERE account_id = ?",  # pragma: no mutate
                 (account.id,),
             ).rowcount
+            if expected is not None and count != expected:  # the rollback undoes the delete
+                raise RefusedError("nothing forgotten: the account changed after it was read")
             connection.execute(
                 "DELETE FROM imports WHERE account_id = ?",  # pragma: no mutate
                 (account.id,),

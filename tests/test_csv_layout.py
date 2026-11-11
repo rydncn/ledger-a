@@ -182,6 +182,29 @@ def test_ac09_ac10_ac12_the_current_account_sample_is_five_exact_rows() -> None:
     ]
 
 
+@pytest.mark.parametrize(
+    ("given", "accepted"),
+    [
+        ("utf-8-sig", True),  # what Excel writes; read() strips the mark anyway
+        ("UTF8", True),
+        ("windows-1252", True),
+        ("latin-1", True),
+        ("iso8859-15", True),  # Latin-9: Latin-1 with the euro sign
+        ("us-ascii", True),
+        ("cp1250", False),
+    ],
+)
+def test_ac43_the_encodings_a_layout_may_name(given: str, accepted: bool) -> None:
+    table = {**BANK, "encoding": given}
+    if accepted:
+        assert Layout.from_config("bank", table).encoding == given
+    else:
+        with pytest.raises(
+            ConfigError, match=f'^layouts.bank: encoding "{given}" is not supported$'
+        ):
+            Layout.from_config("bank", table)
+
+
 def test_ac11_latin_1_semicolons_decimal_commas_and_us_dates() -> None:
     rows = list(read(SAMPLES / "credit-card.csv", Layout.from_config("card", CARD), 2))
     assert [

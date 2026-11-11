@@ -317,7 +317,7 @@ Each becomes a test named `test_acNN_...`. "Refused" always means: a message on 
 #### AC43. An unknown or invalid layout is a configuration error
 - **Given** `--layout nosuch`, and in another case `[layouts.bank]` missing `date`, and in another `date_format = "%Q"`, and in another `decimal = ","` with `thousands = ","`
 - **When** `tally import ...` with that layout
-- **Then** refused with the layout's name and the problem (`layouts.bank: no "date" column named`), exit 2, the data file not opened
+- **Then** refused with the layout's name and the problem (`layouts.bank: no "date" column named`), exit 2, the data file not opened. A layout's `encoding` is one of UTF-8 (with or without a byte order mark), cp1252, Latin-1, Latin-9 and ASCII; any other is `encoding "..." is not supported`
 
 #### AC44. Amounts in every form a statement uses, exactly
 - **Given** a layout with `decimal = "."` and `thousands = ","`
