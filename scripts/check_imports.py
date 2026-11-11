@@ -30,6 +30,8 @@ ALLOWED = frozenset(
         "dataclasses",
         "datetime",
         "decimal",
+        "heapq",  # report.payees: the top payees in memory bounded by --top (slice 5)
+        "io",  # cli: TextIOWrapper, to turn newline translation off for CSV (slice 5)
         "itertools",
         "json",
         "logging",

@@ -10,20 +10,24 @@ from __future__ import annotations
 
 import argparse
 import csv
+import io
 import json
 import logging
 import os
+import re
 import sqlite3
 import sys
 import unicodedata
 from collections.abc import Sequence
+from itertools import groupby
 from pathlib import Path
-from typing import TypedDict
+from typing import TextIO, TypedDict
 
 from tally import __version__
 from tally.config import Config, ConfigError, data_dir_for, load_config
 from tally.importers import NotAStatementError, kind, ofx
 from tally.importers.csv_layout import Layout, read
+from tally.report import monthly, payees
 from tally.rules import Match, categorise
 from tally.rules import load as load_rules
 from tally.store import Entry, LockedError, RefusedError, Store
@@ -37,6 +41,15 @@ _PICTURES = {chr(code): chr(0x2400 + code) for code in range(0x20)} | {"\x7f": "
 _HIDDEN = frozenset({"Cc", "Cf", "Cs", "Co", "Cn", "Zl", "Zp"})
 # A CSV text cell starting with one of these runs as a formula in a spreadsheet.
 _FORMULA = ("=", "+", "-", "@", "\t", "\r")
+# ASCII digits only: strptime reads "2026-1" as January, and \d takes Arabic-Indic digits.
+_MONTH = re.compile(r"[0-9]{4}-(?:0[1-9]|1[0-2])")
+_TOP = re.compile(r"[1-9][0-9]{0,2}|1000")
+REPORT_FIELDS = ("month", "currency", "category", "income", "spending", "net")
+PAYEE_FIELDS = ("currency", "description", "total", "count")
+_WIDEST = 60  # a description in the payees table; the CSV and JSON keep it whole
+# The only escape sequences Tally writes: red, and back to normal (AC33).
+_RED = f"{chr(0x1B)}[31m"
+_RESET = f"{chr(0x1B)}[0m"
 
 
 # Every parser: no abbreviated options, or every accepted prefix is part of the command line.
@@ -50,6 +63,22 @@ EXIT_OK = 0
 EXIT_REFUSED = 1
 EXIT_USAGE = 2
 EXIT_LOCKED = 3
+
+
+class UsageError(Exception):
+    """Options that each parse but do not go together: exit code 2."""
+
+
+def month(text: str) -> str:
+    if not _MONTH.fullmatch(text):
+        raise argparse.ArgumentTypeError("not a month like 2026-10")
+    return text
+
+
+def top_count(text: str) -> int:
+    if not _TOP.fullmatch(text):
+        raise argparse.ArgumentTypeError("not a number from 1 to 1000")
+    return int(text)
 
 
 def account_name(text: str) -> str:
@@ -106,7 +135,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     add.set_defaults(run=account_add)
     listing = actions.add_parser("list", parents=[common], **STRICT, help="list the accounts")
-    listing.add_argument("--format", choices=["table", "json"], default="table")
+    listing.add_argument("--format", choices=["table", "csv", "json"], default="table")
     listing.set_defaults(run=account_list)
     forget = actions.add_parser(
         "forget",
@@ -156,6 +185,31 @@ def build_parser() -> argparse.ArgumentParser:
         default="table",  # pragma: no mutate (any other default also reaches the table branch)
     )
     explain.set_defaults(run=explain_run)
+
+    period = argparse.ArgumentParser(add_help=False, parents=[common])  # pragma: no mutate
+    period.add_argument("--month", type=month, help="one month, e.g. 2026-10")
+    period.add_argument(
+        "--from", dest="first", type=month, metavar="MONTH", help="the first month, inclusive"
+    )
+    period.add_argument(
+        "--to", dest="last", type=month, metavar="MONTH", help="the last month, inclusive"
+    )
+    period.add_argument(
+        "--format",
+        choices=["table", "csv", "json"],
+        default="table",  # pragma: no mutate (any other default also reaches the table branch)
+    )
+    reporting = commands.add_parser(
+        "report", parents=[period], **STRICT, help="money in and out by category, each month"
+    )
+    reporting.set_defaults(run=report_run)
+    paying = commands.add_parser(
+        "payees", parents=[period], **STRICT, help="the payees taking the most money"
+    )
+    paying.add_argument(
+        "--top", type=top_count, default=10, metavar="N", help="how many per currency, 1 to 1000"
+    )
+    paying.set_defaults(run=payees_run)
     return parser
 
 
@@ -179,6 +233,10 @@ def account_list(args: argparse.Namespace, config: Config) -> int:
     if args.format == "table":
         for a in accounts:
             print(f"{a.name} {a.currency}")
+    elif args.format == "csv":
+        writer = csv.writer(_csv_stdout())
+        writer.writerow(("name", "currency"))
+        writer.writerows([_cell(a.name), _cell(a.currency)] for a in accounts)
     else:
         print(json.dumps([{"name": a.name, "currency": a.currency} for a in accounts]))
     return EXIT_OK
@@ -305,6 +363,160 @@ def _cell(text: str) -> str:
     return f"'{shown}" if text.startswith(_FORMULA) else shown  # decided by the original (AC32)
 
 
+def _csv_stdout() -> TextIO:
+    """Standard output with no newline translation, so each row ends ``\\r\\n`` everywhere.
+
+    The csv module writes ``\\r\\n`` itself; a text stream on Windows would make it
+    ``\\r\\r\\n`` (AC32).
+    """
+    if isinstance(sys.stdout, io.TextIOWrapper):
+        # no mutate: newline=None writes \r\n as it is everywhere but Windows, which no test
+        # run here is; the Windows-style stream test kills every other change
+        sys.stdout.reconfigure(newline="")  # pragma: no mutate
+    return sys.stdout
+
+
+def _colour() -> bool:
+    """Colour only on a terminal, and never when NO_COLOR is set to anything (AC33)."""
+    return sys.stdout.isatty() and "NO_COLOR" not in os.environ
+
+
+def _right(text: str, width: int, *, colour: bool) -> str:
+    """Right-aligned; a negative amount red on a terminal, its ``-`` there either way."""
+    shown = f"{_RED}{text}{_RESET}" if colour and text.startswith("-") else text
+    return " " * (width - len(text)) + shown  # padded by the text, so colour moves nothing
+
+
+def _section(title: str, header: Sequence[str], rows: Sequence[Sequence[str]]) -> list[str]:
+    """A title, then lines with the first column left-aligned and the rest right-aligned.
+
+    Each cell is made printable before it is measured: a replacement is one character.
+    """
+    colour = _colour()
+    lines = [[printable(cell) for cell in line] for line in [header, *rows]]
+    first, *rest = [max(len(line[i]) for line in lines) for i in range(len(header))]
+
+    def joined(line: list[str]) -> str:
+        # no mutate: every line has the header's number of cells, so strict changes nothing
+        pairs = zip(line[1:], rest, strict=True)  # pragma: no mutate
+        return "  ".join([line[0].ljust(first), *(_right(c, w, colour=colour) for c, w in pairs)])
+
+    return [printable(title), *map(joined, lines)]
+
+
+def _period(args: argparse.Namespace) -> tuple[str, str]:
+    """The first and last month asked for, both inclusive, or ``UsageError`` (AC37)."""
+    if args.month is not None:
+        if args.first is not None or args.last is not None:
+            raise UsageError("--month is not given with --from or --to")
+        return args.month, args.month
+    if args.first is None or args.last is None:
+        raise UsageError("give --month, or --from and --to")
+    if args.first > args.last:  # YYYY-MM text sorts as the months do
+        raise UsageError(f"--from {args.first} is after --to {args.last}")
+    return args.first, args.last
+
+
+def _shortened(text: str) -> str:
+    """At most 60 characters, so one hostile description cannot widen every line it pads."""
+    return text if len(text) <= _WIDEST else text[: _WIDEST - 1] + "…"
+
+
+def _print_sections(sections: Sequence[Sequence[str]]) -> None:
+    """Each section's lines (made printable by ``_section``), a blank line between sections."""
+    print("\n\n".join("\n".join(s) for s in sections), end="")
+    if sections:
+        print()
+
+
+def report_run(args: argparse.Namespace, config: Config) -> int:
+    """Money in and out by category, per month and currency (AC30, AC31, AC36)."""
+    period = _period(args)
+    rules = load_rules(config.rules)  # before the data file opens (AC29)
+    with open_store(args, config) as store:
+        totals = monthly(store.entries(period), rules)
+    if args.format == "json":
+        print(
+            json.dumps(
+                [
+                    {
+                        "month": t.month,
+                        "currency": t.currency,
+                        "category": t.category,
+                        "income": str(t.income),
+                        "spending": str(t.spending),
+                        "net": str(t.net),
+                    }
+                    for t in totals
+                ]
+            )
+        )
+    elif args.format == "csv":
+        writer = csv.writer(_csv_stdout())
+        writer.writerow(REPORT_FIELDS)
+        writer.writerows(
+            [
+                _cell(t.month),
+                _cell(t.currency),
+                _cell(t.category or ""),
+                t.income,
+                t.spending,
+                t.net,
+            ]
+            for t in totals
+        )
+    else:
+        sections = [
+            _section(
+                f"{when} {currency}",
+                ("category", "income", "spending", "net"),
+                [
+                    [t.category or "uncategorised", str(t.income), str(t.spending), str(t.net)]
+                    for t in group
+                ],
+            )
+            for (when, currency), group in groupby(totals, key=lambda t: (t.month, t.currency))
+        ]
+        _print_sections(sections)
+    return EXIT_OK
+
+
+def payees_run(args: argparse.Namespace, config: Config) -> int:
+    """The payees with the most money out in the period, per currency (AC31)."""
+    period = _period(args)
+    with open_store(args, config) as store:
+        found = payees(store.payments(period), args.top)
+    if args.format == "json":
+        print(
+            json.dumps(
+                [
+                    {
+                        "currency": p.currency,
+                        "description": p.description,
+                        "total": str(p.total),
+                        "count": p.count,
+                    }
+                    for p in found
+                ]
+            )
+        )
+    elif args.format == "csv":
+        writer = csv.writer(_csv_stdout())
+        writer.writerow(PAYEE_FIELDS)
+        writer.writerows([_cell(p.currency), _cell(p.description), p.total, p.count] for p in found)
+    else:
+        sections = [
+            _section(
+                currency,
+                ("description", "total", "count"),
+                [[_shortened(p.description), str(p.total), str(p.count)] for p in group],
+            )
+            for currency, group in groupby(found, key=lambda p: p.currency)
+        ]
+        _print_sections(sections)
+    return EXIT_OK
+
+
 def uncategorised(args: argparse.Namespace, config: Config) -> int:
     """Every transaction no rule matches (AC27), the rules read before the data file (AC29)."""
     rules = load_rules(config.rules)
@@ -314,7 +526,7 @@ def uncategorised(args: argparse.Namespace, config: Config) -> int:
     if args.format == "json":
         print(json.dumps([_fields(e) for e in found]))
     elif args.format == "csv":
-        writer = csv.writer(sys.stdout)
+        writer = csv.writer(_csv_stdout())
         writer.writerow(ENTRY_FIELDS)
         writer.writerows(
             [
@@ -378,7 +590,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         code: int = args.run(args, config)
     # Every message goes through printable: keys, paths and names can come from the user's
     # own configuration or environment, and may hold controls (AC38).
-    except ConfigError as error:
+    except (ConfigError, UsageError) as error:
         print(printable(str(error)), file=sys.stderr)
         return EXIT_USAGE
     except (RefusedError, NotAStatementError, sqlite3.Error) as error:

@@ -105,6 +105,8 @@ _ENTRIES = (
     " t.description, t.amount_minor"  # pragma: no mutate
     " FROM transactions t JOIN accounts a ON a.id = t.account_id"  # pragma: no mutate
 )
+# Dates are ISO text, so a month is their first seven characters.
+_IN_MONTHS = "WHERE substr(t.date, 1, 7) BETWEEN ? AND ?"  # pragma: no mutate
 
 
 @dataclass(frozen=True)
@@ -297,10 +299,22 @@ class Store:
         ).fetchone()
         return int(row[0])
 
-    def entries(self) -> Iterator[Entry]:
-        """Every transaction, oldest first; only reads, so it never waits on a writer (ADR 0005)."""
-        query = f"{_ENTRIES} ORDER BY t.date, t.id"  # pragma: no mutate
-        for row in self._connection.execute(query):
+    def entries(self, months: tuple[str, str] | None = None) -> Iterator[Entry]:
+        """Every transaction, or those in months ``first`` to ``last`` inclusive, oldest first.
+
+        Only reads, so it never waits on a writer (ADR 0005).
+        """
+        query = f"{_ENTRIES} {_IN_MONTHS if months else ''} ORDER BY t.date, t.id"
+        for row in self._connection.execute(query, months or ()):
+            yield Entry(*row)
+
+    def payments(self, months: tuple[str, str]) -> Iterator[Entry]:
+        """The money out in the months, grouped by currency, scale and description (payees)."""
+        query = (
+            f"{_ENTRIES} {_IN_MONTHS} AND t.amount_minor < 0"  # pragma: no mutate
+            " ORDER BY a.currency, a.scale, t.description"  # pragma: no mutate
+        )
+        for row in self._connection.execute(query, months):
             yield Entry(*row)
 
     def entry(self, transaction_id: int) -> Entry | None:
