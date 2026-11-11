@@ -241,7 +241,7 @@ def account_list(args: argparse.Namespace, config: Config) -> int:
         accounts = store.accounts()
     if args.format == "table":
         for a in accounts:
-            print(f"{a.name} {a.currency}")
+            print(printable(f"{a.name} {a.currency}"))
     elif args.format == "csv":
         writer = csv.writer(_csv_stdout())
         writer.writerow(("name", "currency"))
@@ -261,22 +261,30 @@ def _forget(args: argparse.Namespace, store: Store) -> int:
     if account is None:
         raise RefusedError(f'no account named "{args.name}"')
     count = store.transaction_count(account)
+    shown = printable(account.name)  # names refuse controls, but a line separator is not one
     if not args.yes:
         if sys.stdin is None or not sys.stdin.isatty():
             print(
-                f'forgetting "{account.name}" needs --yes when standard input is not a terminal',
+                f'forgetting "{shown}" needs --yes when standard input is not a terminal',
                 file=sys.stderr,
             )
             return EXIT_USAGE
         sys.stderr.write(
-            f'Forget account "{account.name}" and its {count} transactions? Type yes to continue: '
+            f'Forget account "{shown}" and its {count} transactions? Type yes to continue: '
         )
         sys.stderr.flush()
         if sys.stdin.readline().strip() != "yes":
             raise RefusedError("nothing forgotten")
     count = store.forget_account(account, expected=None if args.yes else count)
-    print(f'forgot account "{account.name}" and its {count} transactions', file=sys.stderr)
+    print(f'forgot account "{shown}" and its {count} transactions', file=sys.stderr)
     return EXIT_OK
+
+
+class _Printable(logging.Formatter):
+    """Log lines made printable, as every other message is."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        return printable(super().format(record))
 
 
 def import_run(args: argparse.Namespace, config: Config) -> int:
@@ -285,6 +293,7 @@ def import_run(args: argparse.Namespace, config: Config) -> int:
         return _import(args, config)
     log = logging.getLogger("tally")  # pragma: no mutate (the root logger carries the same lines)
     handler = logging.StreamHandler(sys.stderr)  # pragma: no mutate (None is standard error too)
+    handler.setFormatter(_Printable())  # a logged path is the file's own name (AC38)
     log.addHandler(handler)
     log.setLevel(logging.INFO)
     try:
@@ -322,7 +331,7 @@ def _import(args: argparse.Namespace, config: Config) -> int:
         summary = store.import_transactions(account, shown, outcomes)
     where = "line" if layout is not None else "transaction"  # what a row's number counts
     for unreadable in summary.unreadable[:UNREADABLE_LINES_SHOWN]:
-        print(f"{where} {unreadable.line}: {unreadable.reason}", file=sys.stderr)
+        print(printable(f"{where} {unreadable.line}: {unreadable.reason}"), file=sys.stderr)
     if summary.unreadable_count > UNREADABLE_LINES_SHOWN:
         print(f"and {summary.unreadable_count - UNREADABLE_LINES_SHOWN} more", file=sys.stderr)
     if args.format == "table":
