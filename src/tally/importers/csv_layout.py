@@ -138,12 +138,18 @@ class _LineTooLongError(Exception):
 
 
 class _Lines:
-    """The file's lines, counted; one longer than MAX_LINE is drained and refused (AC40)."""
+    """The file's lines, counted; one longer than MAX_LINE is drained and refused (AC40).
+
+    A record that quoted line breaks carry over many short lines is held whole by the csv
+    reader, so the record is bounded too: ``taken`` counts its characters, and past
+    MAX_LINE it is refused as one long line is.
+    """
 
     def __init__(self, handle: TextIO, encoding: str) -> None:
         self._handle = handle
         self._encoding = encoding
         self.number = 0
+        self.taken = 0
 
     def __iter__(self) -> _Lines:
         return self
@@ -153,6 +159,9 @@ class _Lines:
         if not line:
             raise StopIteration
         self.number += 1
+        self.taken += len(line)
+        if self.taken > MAX_LINE:
+            raise _LineTooLongError
         if len(line) == MAX_LINE and not line.endswith(("\n", "\r")):
             while line and not line.endswith(("\n", "\r")):  # drain the rest, chunk by chunk
                 line = self._read()
@@ -263,6 +272,7 @@ def read(path: Path, layout: Layout, scale: int) -> Iterator[Transaction | Unrea
         count = 0
         while True:
             start = lines.number + 1  # a quoted field can carry a record over many lines
+            lines.taken = 0
             try:
                 cells = next(reader)
             except StopIteration:

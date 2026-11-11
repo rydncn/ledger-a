@@ -728,3 +728,25 @@ def test_ac38_verbose_logging_shows_controls_in_a_file_name(
     assert code == 0
     assert "statement␛[2J.csv" in err
     assert ESC not in err
+
+
+def test_ac40_a_record_of_many_quoted_lines_is_bounded_and_refused(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    place = Place(tmp_path, capsys)
+    # One record of a million short quoted fields, each holding a line break: every physical
+    # line is short, so only a bound on the record keeps it from being held whole.
+    path = tmp_path / "many-lines.csv"
+    path.write_bytes(
+        HEADER.encode() + b'"x\n",' * 1_000_000 + b'"x"\r\n' + b"06/10/2026,AFTER,1.00,,\r\n"
+    )
+    tracemalloc.start()
+    try:
+        code, _, err = place.import_(path)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert code == 0
+    assert peak < 30 * 1024 * 1024  # about what one 2 MiB line can take; unbounded, 55 MB
+    assert err.startswith("line 2: field longer than 1 MB")
+    assert "AFTER" in [r[1] for r in place.transactions()]
