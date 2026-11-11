@@ -11,10 +11,13 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
+import sqlite3
 import sys
 import unicodedata
 from collections.abc import Sequence
 from pathlib import Path
+from typing import TypedDict
 
 from tally import __version__
 from tally.config import Config, ConfigError, data_dir_for, load_config
@@ -23,6 +26,14 @@ from tally.importers.csv_layout import Layout, read
 from tally.store import LockedError, RefusedError, Store
 
 UNREADABLE_LINES_SHOWN = 50
+
+
+# Every parser: no abbreviated options, or every accepted prefix is part of the command line.
+class _Strict(TypedDict):
+    allow_abbrev: bool
+
+
+STRICT: _Strict = {"allow_abbrev": False}
 
 EXIT_OK = 0
 EXIT_REFUSED = 1
@@ -50,6 +61,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="tally",
         description="See where your money goes, from your bank's statement files.",
+        **STRICT,
     )
     parser.add_argument("--version", action="version", version=f"tally {__version__}")
     commands = parser.add_subparsers(dest="command", metavar="<command>")
@@ -58,26 +70,32 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--config", metavar="FILE", help="the tally.toml to read")
     common.add_argument("--data-dir", metavar="DIR", help="where the data file lives")
 
-    account = commands.add_parser("account", help="add, list and forget accounts")
+    account = commands.add_parser("account", **STRICT, help="add, list and forget accounts")
     actions = account.add_subparsers(metavar="<action>", required=True)
-    add = actions.add_parser("add", parents=[common], help="add an account")
+    add = actions.add_parser("add", parents=[common], **STRICT, help="add an account")
     add.add_argument("name", type=account_name)
     add.add_argument(
         "--currency", required=True, type=currency_code, help="three letters, e.g. GBP"
     )
     add.set_defaults(run=account_add)
-    listing = actions.add_parser("list", parents=[common], help="list the accounts")
+    listing = actions.add_parser("list", parents=[common], **STRICT, help="list the accounts")
     listing.add_argument("--format", choices=["table", "json"], default="table")
     listing.set_defaults(run=account_list)
     forget = actions.add_parser(
-        "forget", parents=[common], help="delete an account and everything imported into it"
+        "forget",
+        parents=[common],
+        **STRICT,
+        help="delete an account and everything imported into it",
     )
     forget.add_argument("name", type=account_name)
     forget.add_argument("--yes", action="store_true", help="do not ask first")
     forget.set_defaults(run=account_forget)
 
     importing = commands.add_parser(
-        "import", parents=[common], help="import a statement file into an account"
+        "import",
+        parents=[common],
+        **STRICT,
+        help="import a statement file into an account",
     )
     importing.add_argument("file", help="a CSV or OFX statement")
     importing.add_argument(
@@ -142,7 +160,7 @@ def _forget(args: argparse.Namespace, store: Store) -> int:
         sys.stderr.flush()
         if sys.stdin.readline().strip() != "yes":
             raise RefusedError("nothing forgotten")
-    store.forget_account(account)
+    count = store.forget_account(account, expected=None if args.yes else count)
     print(f'forgot account "{account.name}" and its {count} transactions', file=sys.stderr)
     return EXIT_OK
 
@@ -170,6 +188,8 @@ def _import(args: argparse.Namespace, config: Config) -> int:
             raise ConfigError(f'no layout named "{args.layout}"')
         layout = Layout.from_config(args.layout, config.layouts[args.layout])
     path = Path(args.file)
+    # The path as text the data file and JSON can hold: bytes that are not UTF-8 become U+FFFD.
+    shown = os.fsencode(args.file).decode("utf-8", "replace")  # pragma: no mutate (codec case)
     file_kind = kind(path)
     if file_kind == "csv" and layout is None:
         print("--layout is needed for a CSV file", file=sys.stderr)
@@ -185,27 +205,26 @@ def _import(args: argparse.Namespace, config: Config) -> int:
             outcomes = ofx.read(path, account.currency, account.scale)
         else:
             outcomes = read(path, layout, account.scale)
-        summary = store.import_transactions(account, args.file, outcomes)
-    where = (
-        "line" if layout is not None else "transaction"
-    )  # what an unreadable row's number counts
+        summary = store.import_transactions(account, shown, outcomes)
+    where = "line" if layout is not None else "transaction"  # what a row's number counts
     for unreadable in summary.unreadable[:UNREADABLE_LINES_SHOWN]:
         print(f"{where} {unreadable.line}: {unreadable.reason}", file=sys.stderr)
-    if len(summary.unreadable) > UNREADABLE_LINES_SHOWN:
-        print(f"and {len(summary.unreadable) - UNREADABLE_LINES_SHOWN} more", file=sys.stderr)
+    if summary.unreadable_count > UNREADABLE_LINES_SHOWN:
+        print(f"and {summary.unreadable_count - UNREADABLE_LINES_SHOWN} more", file=sys.stderr)
     if args.format == "table":
         print(
             f"added {summary.added}, already there {summary.duplicates},"
-            f" unreadable {len(summary.unreadable)}"
+            f" unreadable {summary.unreadable_count}"
         )
     else:
         print(
             json.dumps(
                 {
                     "account": account.name,
-                    "file": args.file,
+                    "file": shown,
                     "added": summary.added,
                     "duplicates": summary.duplicates,
+                    "unreadable_count": summary.unreadable_count,
                     "unreadable": [{where: u.line, "reason": u.reason} for u in summary.unreadable],
                 }
             )
@@ -226,8 +245,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     except ConfigError as error:
         print(error, file=sys.stderr)
         return EXIT_USAGE
-    except (RefusedError, NotAStatementError) as error:
-        print(error, file=sys.stderr)
+    except (RefusedError, NotAStatementError, sqlite3.Error) as error:
+        failed = isinstance(error, sqlite3.Error)  # a damaged file, a full disk: no data in it
+        print(f"the data file failed: {error}" if failed else error, file=sys.stderr)
         return EXIT_REFUSED
     except LockedError as error:
         print(error, file=sys.stderr)

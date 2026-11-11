@@ -5,9 +5,19 @@ Where the work is, for the next session. The work, not the machine: tools come f
 ## Where we are
 
 - **Slices 0 to 2** merged: foundation (#1), accounts and the data file (#6), CSV import (#7 and #8).
-- **Slice 3 (OFX import)** is pull request [#9](https://github.com/rydncn/ledger-a/pull/9) on `slice-3-ofx-import`. It delivers `importers/ofx.py`, one scanner for OFX 1.x SGML and 2.x XML (no XML parser runs), and `tally import --account NAME FILE` for an OFX file. Criteria AC21 to AC25, AC39, AC41, with AC34 and AC35 for `import`. The plan with what each task observed is `docs/plans/003-ofx-import.md`. The review's findings, the mutation rulings and the whole-codebase review are in #9's description. The fresh-context review's eight findings were fixed test-first.
-- **Next, first: the whole-codebase review**, which the slice 3 session did not run because its budget was spent (it was due after slice 3). A subagent in a worktree at `main` after #9 merges, with `docs/plans/`, this file and the trial records removed. Brief it with `docs/review-brief.md`, `CLAUDE.md`, `docs/design.md`, `docs/brief.md` and the ADRs. It reads slices 1 to 3 together and answers the four questions by name. Fix its findings test-first, or rule on them, in their own pull request before slice 4's plan.
+- **Slice 3 (OFX import)** merged as pull request [#9](https://github.com/rydncn/ledger-a/pull/9) (3b21163), merged by the agent at the owner's explicit request once every CI job was green; ADR 0007 has the owner merge, so this was the owner's delegation, not a change of rule. It delivers `importers/ofx.py`, one scanner for OFX 1.x SGML and 2.x XML (no XML parser runs), and `tally import --account NAME FILE` for an OFX file. The plan is `docs/plans/003-ofx-import.md`; the review, the mutation rulings and the decisions kept are in #9's description.
+- **The whole-codebase review has run** (on `main` at 3b21163) and its findings are fixed in pull request [#10](https://github.com/rydncn/ledger-a/pull/10) on `whole-codebase-review`, with a fresh-context review of the fixes and its five findings fixed too. Merge #10 before slice 4 starts. What it changed that slice 4 builds on is under "Decisions" below; what it left for the owner is under "Open".
 - **Then: slice 4**, categorisation: rules, `tally uncategorised`, `tally explain`; AC26 to AC29 and AC38.
+
+## What the whole-codebase review changed
+
+- `forget` and `import` check the account's id, name and currency again under the lock (SQLite reuses a forgotten account's id); `forget` after a prompt refuses when the count changed since the person confirmed it.
+- An import keeps the first 1,000 unreadable rows and counts the rest: the JSON has `unreadable_count`, and AC13 and AC20 say so.
+- One encoding allowlist for both importers (`importers/__init__.py::ENCODINGS`): UTF-8 with or without a byte order mark, cp1252, Latin-1, Latin-9, ASCII (AC43).
+- A damaged data file, a full disk, a path that is not UTF-8 and a too-deep `tally.toml` are one line, not a traceback.
+- A CSV record an open quote carries over lines is reported on the line it starts on, `in a record that runs to line N`.
+- `scripts/check_imports.py` (in CI after the rule checks) reads every import under `src/` from the syntax tree against an allowed list of exact names, and refuses `__import__`, `__builtins__`, `exec`, `eval` and float literals. **Slice 4 adds no import outside that list without adding it there, as a decision.**
+- Amounts take ASCII digits only; `from_minor` is built from digits. `argparse` refuses abbreviated options. ADR 0009 records the OFX scanner.
 
 ## How a slice goes
 
@@ -46,3 +56,4 @@ Where the work is, for the next session. The work, not the machine: tools come f
 - From the slice 3 review: the store keeps every unreadable row in memory for the summary (AC13's JSON lists them all), so 2.3 million empty `STMTTRN` peaked at about 1 GB. This predates slice 3 and is the same for CSV; capping it changes AC13 and AC20.
 - Numeric references to control characters (`&#27;`) are decoded, as a raw ESC byte in a CSV reaches the data file unchanged; AC38 must replace them on the terminal.
 - The full suite takes about 60 s (AC18 under `tracemalloc` is 28 s of it, the two AC8 waits 20 s), and the stop hook runs it on every stop. If it passes 90 s, move the slow tests behind a marker the hook skips and CI runs, and record the ADR.
+- From the whole-codebase review, for the owner (agent configuration, rule 18, unchanged): the "ask first" rules in `.claude/settings.json` miss `gh api ... /merge`, `git -C . push origin main`, `env git push ...` and every feature-branch push, while `CLAUDE.md` says publishing and pushing ask first; the plugin marketplace is not pinned to a commit; `scripts/check-rules.js` and `scripts/check_imports.py` run only in CI, not in the before-stop hook or `pre-push`. Also undecided: whether a data directory on a network or synced folder is supported (WAL needs shared memory on one host).

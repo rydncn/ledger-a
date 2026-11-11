@@ -54,6 +54,8 @@ def load_config(explicit: str | None) -> Config:
         raise ConfigError(f"{path}: {error.strerror}") from error
     except tomllib.TOMLDecodeError as error:
         raise ConfigError(f"{path}: {error}") from error
+    except RecursionError:  # tomllib reads nested arrays and tables by recursion
+        raise ConfigError(f"{path}: nested too deeply to read") from None
 
     for key in table:
         if key not in {"data_dir", "layouts", "rules"}:

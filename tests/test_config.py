@@ -76,6 +76,14 @@ def test_a_configuration_error_names_the_file_and_the_problem(
     assert problem in str(raised.value)
 
 
+def test_a_configuration_nested_too_deeply_for_the_toml_reader_is_an_error(tmp_path: Path) -> None:
+    path = tmp_path / "tally.toml"
+    path.write_text("x = " + "[" * 100_000 + "]" * 100_000 + "\n", encoding="utf-8")
+    with pytest.raises(ConfigError) as raised:
+        load_config(str(path))
+    assert str(raised.value) == f"{path}: nested too deeply to read"
+
+
 def test_an_explicit_file_that_is_missing_is_an_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

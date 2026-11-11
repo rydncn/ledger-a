@@ -124,6 +124,7 @@ def test_ac35_the_ofx_summary_has_a_json_form_keyed_by_transaction(
         "file": str(broken),
         "added": 1,
         "duplicates": 0,
+        "unreadable_count": 2,
         "unreadable": [
             {"transaction": 2, "reason": "amount is not a number"},
             {"transaction": 3, "reason": "no DTPOSTED"},
@@ -203,6 +204,39 @@ def test_ac19_nothing_personal_in_ofx_messages_with_or_without_verbose(
             assert marker not in err
             assert marker not in out
     assert "reading" in err
+
+
+def test_ac34_a_statement_path_that_is_not_utf_8_is_imported_and_recorded(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    place = Place(tmp_path, capsys)
+    raw = os.fsencode(tmp_path) + b"/st\xffmt.ofx"
+    with open(raw, "wb") as handle:
+        handle.write(SAMPLE.read_bytes())
+    code, out, err = import_ofx(place, Path(os.fsdecode(raw)), "--format", "json")
+    assert (code, err) == (0, "")
+    shown = str(tmp_path) + "/st�mt.ofx"
+    assert json.loads(out)["file"] == shown
+    assert place.imports() == [(shown, 2, 0, 0)]
+
+
+def test_formula_looking_descriptions_are_stored_as_the_file_has_them(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    place = Place(tmp_path, capsys)
+    names = ['=HYPERLINK("http://example.invalid","Refund")', "+1", "-SUM(A1)", "@x"]
+    path = ofx_file(
+        tmp_path,
+        SGML_HEADER
+        + statement(
+            *[
+                f"<DTPOSTED>20261001<TRNAMT>-1<FITID>F{n}<NAME>{name}"
+                for n, name in enumerate(names)
+            ]
+        ),
+    )
+    assert import_ofx(place, path) == (0, "added 4, already there 0, unreadable 0\n", "")
+    assert [row[1] for row in rows(place)] == names
 
 
 def test_verbose_says_what_is_read_for_an_ofx_file(

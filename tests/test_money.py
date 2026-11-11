@@ -44,6 +44,9 @@ UNREADABLE = [
     ".",
     "-£-12.50",
     "£--12.50",
+    "١٢٣.٤٥",  # Arabic-Indic digits, which \d matches, Decimal reads
+    "１,２３４",  # noqa: RUF001 (fullwidth digits, on purpose)
+    "12.٥",  # noqa: RUF001 (an Arabic-Indic five, on purpose)
 ]
 
 
@@ -107,6 +110,15 @@ def test_ac44_thirty_digit_amounts_are_exact_and_the_data_file_bound_is_refused(
         to_minor(Decimal("-92233720368547758.09"), 2)
     with pytest.raises(AmountError, match=r"^amount is not a number$"):
         to_minor(Decimal("NaN"), 2)
+
+
+def test_minor_units_come_back_exactly_past_the_decimal_contexts_precision() -> None:
+    """from_minor is built from digits, never by arithmetic, which rounds at 28 digits."""
+    minor = int("9" * 40)
+    assert str(from_minor(minor, 2)) == "9" * 38 + ".99"
+    assert str(from_minor(-minor, 3)) == "-" + "9" * 37 + ".999"
+    assert str(from_minor(0, 2)) == "0.00"
+    assert str(from_minor(5, 0)) == "5"
 
 
 def test_ac44_a_huge_amount_is_refused_before_it_is_converted() -> None:

@@ -196,9 +196,17 @@ def test_ac20_ac35_the_summary_has_a_json_form_and_nothing_else_on_standard_outp
         "file": str(mixed),
         "added": 1,
         "duplicates": 0,
+        "unreadable_count": 1,
         "unreadable": [{"line": 3, "reason": "date does not match %d/%m/%Y"}],
     }
-    assert list(json.loads(out)) == ["account", "file", "added", "duplicates", "unreadable"]
+    assert list(json.loads(out)) == [
+        "account",
+        "file",
+        "added",
+        "duplicates",
+        "unreadable_count",
+        "unreadable",
+    ]
     assert out.endswith("\n")
     assert out.count("\n") == 1
     assert place.import_(mixed) == (
@@ -563,6 +571,7 @@ def test_the_installed_command_imports_and_refuses(
         "file": sample,
         "added": 5,
         "duplicates": 0,
+        "unreadable_count": 0,
         "unreadable": [],
     }
     refused = tally_run("--account", "old", "--layout", "bank", sample)
@@ -627,6 +636,50 @@ def test_ac08_a_copy_that_cannot_get_the_file_in_time_says_so_and_writes_nothing
     assert holder.execute("SELECT count(*) FROM imports").fetchone() == (0,)
     assert holder.execute("SELECT count(*) FROM transactions").fetchone() == (0,)
     holder.close()
+
+
+def test_an_account_read_before_the_lock_never_reaches_the_account_that_reused_its_id(
+    tmp_path: Path,
+) -> None:
+    """SQLite gives a forgotten account's id to the next one added: the name is checked again."""
+    with Store.open(tmp_path) as first, Store.open(tmp_path) as second:
+        first.add_account("savings", "GBP")
+        seen = first.add_account("current", "GBP")
+        second.forget_account(second.account("current"))  # type: ignore[arg-type]
+        joint = second.add_account("joint", "EUR")
+        assert joint.id == seen.id
+        second.import_transactions(joint, "a.csv", [Transaction(2, "2026-10-01", "x", -1, "csv:1")])
+        with pytest.raises(RefusedError, match=r'^no account named "current"$'):
+            first.forget_account(seen)
+        with pytest.raises(RefusedError, match=r'^no account named "current"$'):
+            first.import_transactions(
+                seen, "b.csv", [Transaction(2, "2026-10-02", "y", -2, "csv:2")]
+            )
+        assert second.transaction_count(joint) == 1
+        assert [a.name for a in second.accounts()] == ["joint", "savings"]
+        assert second.forget_account(joint) == 1  # how many it deleted, counted under the lock
+
+
+def test_unreadable_rows_are_counted_and_only_the_first_thousand_kept(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    place = Place(tmp_path, capsys)
+    path = tmp_path / "flood.csv"
+    path.write_text(HEADER + "x\r\n" * 200_000 + "01/10/2026,Y,1.00,,\r\n", encoding="utf-8")
+    tracemalloc.start()
+    try:
+        code, out, err = place.import_(path, "--format", "json")
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    summary = json.loads(out)
+    assert (code, summary["added"], summary["unreadable_count"]) == (0, 1, 200_000)
+    assert len(summary["unreadable"]) == 1000
+    assert summary["unreadable"][-1] == {"line": 1001, "reason": "expected 5 columns, found 1"}
+    assert err.splitlines()[50:] == ["and 199950 more"]
+    assert peak < 16 * 1024 * 1024
+    assert place.imports()[-1] == (str(path), 1, 0, 200_000)
+    assert place.import_(path)[1] == "added 0, already there 1, unreadable 200000\n"
 
 
 def test_ac05_an_account_forgotten_by_another_copy_during_the_import_is_refused(

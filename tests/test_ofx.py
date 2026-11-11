@@ -420,7 +420,7 @@ def test_a_file_that_is_not_text_in_its_declared_encoding_is_refused_whole(
         ("base64", "<NAME>X"),
         ("utf-16", "<NAME>X"),
         ("cp500", "<NAME>X"),
-        ("iso8859-15", "<NAME>X"),
+        ("cp1250", "<NAME>X"),
     ],
 )
 def test_only_the_encodings_ofx_uses_may_be_declared(

@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import NoReturn, TextIO
 
 from tally.config import ConfigError
-from tally.importers import NotAStatementError, Transaction, Unreadable
+from tally.importers import ENCODINGS, NotAStatementError, Transaction, Unreadable
 from tally.money import AmountError, parse_amount, to_minor
 
 MAX_FIELD = 1_048_576
@@ -119,11 +119,11 @@ class Layout:
         except ValueError:
             _fail(name, "delimiter cannot be a quote or a line ending")
         try:
-            encoded = "Date".encode(layout.encoding)  # pragma: no mutate (any text shows the NULs)
+            codec = codecs.lookup(layout.encoding).name
         except LookupError:
             _fail(name, f'unknown encoding "{layout.encoding}"')
-        if b"\0" in encoded:  # UTF-16 and UTF-32: kind() reads a NUL byte as not a text file
-            _fail(name, f'encoding "{layout.encoding}" is not supported: its text holds NUL bytes')
+        if codec not in ENCODINGS:  # UTF-16 holds NULs; UTF-7 and the escape codecs, surrogates
+            _fail(name, f'encoding "{layout.encoding}" is not supported')
         try:
             read_back = datetime.strptime(_PROBE.strftime(layout.date_format), layout.date_format)
         except ValueError:
@@ -228,6 +228,11 @@ class _Rows:
         return self._magnitude(money_in) - self._magnitude(money_out)
 
 
+def _spanning(reason: str, end: int, start: int) -> str:
+    """The reason, saying how far the record ran when an open quote carried it past its line."""
+    return reason if end == start else f"{reason}, in a record that runs to line {end}"
+
+
 def _header(reader: Iterator[list[str]], lines: _Lines) -> list[str]:
     try:
         header = next(reader)
@@ -257,15 +262,19 @@ def read(path: Path, layout: Layout, scale: int) -> Iterator[Transaction | Unrea
         log.info("reading %s as %s, %d columns", path, encoding, rows.width)
         count = 0
         while True:
+            start = lines.number + 1  # a quoted field can carry a record over many lines
             try:
                 cells = next(reader)
             except StopIteration:
                 break
             except (_LineTooLongError, csv.Error) as error:
-                yield Unreadable(lines.number, _reason(error))
+                yield Unreadable(start, _spanning(_reason(error), lines.number, start))
                 continue
             if not cells:
                 continue  # a blank line carries no row
             count += 1
-            yield rows.outcome(cells, lines.number)
+            outcome = rows.outcome(cells, start)
+            if isinstance(outcome, Unreadable):
+                outcome = Unreadable(outcome.line, _spanning(outcome.reason, lines.number, start))
+            yield outcome
         log.info("read %d rows", count)

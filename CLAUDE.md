@@ -16,6 +16,7 @@ uv run pytest -q tests/test_cli.py         # Run a single test file
 uv run ruff format --check . && uv run ruff check .   # Format and lint check
 uv run mypy                                # Type check (strict)
 node scripts/check-rules.js scripts/rules.json        # Project rule checks
+uv run python scripts/check_imports.py     # Every import under src/ on the allowed list
 uv run python scripts/mutation_changed.py origin/main # Mutation testing on changed files (needs: UV_NO_BUILD=0 uv sync --locked --group mutation)
 uv run python scripts/audit.py             # Dependency audit with the dated allowlist
 ```
@@ -43,7 +44,7 @@ Decisions and the options rejected for them are in `docs/decisions/`. Read the r
 ### Security boundaries
 
 - **Money is exact.** No `float` anywhere under `src/`: checked by the `no-float-for-money` rule check over every `.py` file in `src/`, which fails if it finds no files. Amounts are `Decimal`, stored in SQLite as integer minor units with the currency.
-- **No network.** Checked by the `no-network` rule check over `src/` (the standard library's network modules and the common third-party clients) and by having no runtime dependencies at all.
+- **No network.** Checked by the `no-network` rule check over `src/` (the standard library's network modules and the common third-party clients), by `scripts/check_imports.py`, which reads every import from the syntax tree and fails on one outside its allowed list (an alias or a from-import passes a word check), and by having no runtime dependencies at all.
 - **Nothing personal in output the user didn't ask for.** Error messages name the file, the line number and the reason, never the row's content; logging is off unless `--verbose`, and even then descriptions and amounts are not logged. Tested by the error-message tests, which import a hostile file and assert its descriptions appear nowhere in standard error.
 - **The data file is the user's alone.** Created with mode `0600` inside a directory created `0700`; the permission test fails when either is wider.
 - **Statement files are hostile input.** Every importer is tested with a byte order mark, Windows line endings, Latin-1, quoted fields with commas, formula-looking descriptions, a file that isn't a statement, and a very large file (bounded memory: streamed, never read whole). CSV export escapes any text cell starting with `=`, `+`, `-`, `@`, a tab or a carriage return, so a spreadsheet never runs it; amount cells are plain decimals matching `-?\d+\.\d{2}` and are never prefixed.
@@ -80,3 +81,4 @@ Decisions and the options rejected for them are in `docs/decisions/`. Read the r
 - `int()` of a huge `Decimal` costs its length squared (1.6 s for 300,000 digits), and an amount's length is the file's choice: bound the digits before converting, as `to_minor` does.
 - A probe beats a guess about a library: `html.unescape` follows HTML5 (`&ampfoo` is `&foo`), `strptime("2026111", "%Y%m%d")` is 1 November, and `\d` matches Arabic-Indic digits that `int` and `Decimal` accept. One line in the interpreter before choosing the function.
 - A fresh cloud checkout has no local `origin/main`: run `git fetch origin main` before anything diffs against it (the mutation script does).
+- When a lesson is added here, grep the codebase for every place its pattern already appears and fix them in the same change: the codec allowlist and `[0-9]` were learnt in the OFX importer, and the CSV importer and `money.py` kept the flaw until the whole-codebase review.

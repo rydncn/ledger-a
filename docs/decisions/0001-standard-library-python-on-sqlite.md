@@ -1,6 +1,6 @@
 # 1. Python 3.15 with uv, standard library only, SQLite for storage
 
-**Status:** accepted · **Date:** 2026-11-10 · **Replaces:** none
+**Status:** accepted; replaced in part by [ADR 0009](0009-ofx-read-by-a-scanner-not-an-xml-parser.md), which reads OFX XML with Tally's own scanner instead of `xml.etree` · **Date:** 2026-11-10 · **Replaces:** none
 
 ## Context
 

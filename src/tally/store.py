@@ -28,6 +28,7 @@ from tally.money import scale_of
 DATA_FILE = "tally.sqlite"
 BUSY_TIMEOUT_SECONDS = 10
 LOCKED_MESSAGE = "another copy of tally is using the data file"
+UNREADABLE_KEPT = 1000  # an import's unreadable rows kept for the summary; the rest are counted
 
 # Each entry is one schema version, applied in order inside one transaction;
 # PRAGMA user_version records how many have been applied. SQL text carries
@@ -87,7 +88,8 @@ class ImportSummary:
 
     added: int
     duplicates: int
-    unreadable: list[Unreadable]
+    unreadable: list[Unreadable]  # the first UNREADABLE_KEPT of them
+    unreadable_count: int
 
 
 @contextmanager
@@ -115,9 +117,23 @@ def _switch_to_wal(connection: sqlite3.Connection) -> None:
             # no mutate: the deadline arm is reachable only by waiting the whole timeout
             if error.sqlite_errorcode != sqlite3.SQLITE_BUSY or out_of_time:  # pragma: no mutate
                 raise
-            time.sleep(0.01)  # pragma: no mutate
+            time.sleep(0.01)  # pragma: no mutate  rules-check-ignore: seconds to wait, not money
         else:
             return
+
+
+def _still_present(connection: sqlite3.Connection, account: Account) -> None:
+    """Under the lock: the account read before it is still this one.
+
+    SQLite gives a forgotten account's id to the next one added, so the id alone
+    could name another account by now.
+    """
+    row = connection.execute(
+        "SELECT 1 FROM accounts WHERE id = ? AND name = ? AND currency = ?",  # pragma: no mutate
+        (account.id, account.name, account.currency),
+    ).fetchone()
+    if row is None:
+        raise RefusedError(f'no account named "{account.name}"')
 
 
 def _now() -> str:
@@ -260,21 +276,21 @@ class Store:
         self, account: Account, file: str, outcomes: Iterable[Transaction | Unreadable]
     ) -> ImportSummary:
         """One import run, all or nothing (ADR 0005): the record, each row, then its counts."""
-        added = duplicates = 0
+        added = duplicates = unreadable_count = 0
         unreadable: list[Unreadable] = []
         with self.write() as connection:
-            try:
-                (import_id,) = connection.execute(
-                    "INSERT INTO imports (account_id, file, imported_at,"  # pragma: no mutate
-                    " added, duplicates, unreadable)"  # pragma: no mutate
-                    " VALUES (?, ?, ?, 0, 0, 0) RETURNING id",  # pragma: no mutate
-                    (account.id, file, _now()),
-                ).fetchone()
-            except sqlite3.IntegrityError as error:  # the foreign key: another copy forgot it
-                raise RefusedError(f'no account named "{account.name}"') from error
+            _still_present(connection, account)
+            (import_id,) = connection.execute(
+                "INSERT INTO imports (account_id, file, imported_at,"  # pragma: no mutate
+                " added, duplicates, unreadable)"  # pragma: no mutate
+                " VALUES (?, ?, ?, 0, 0, 0) RETURNING id",  # pragma: no mutate
+                (account.id, file, _now()),
+            ).fetchone()
             for outcome in outcomes:
                 if isinstance(outcome, Unreadable):
-                    unreadable.append(outcome)
+                    unreadable_count += 1
+                    if unreadable_count <= UNREADABLE_KEPT:  # a flood of them costs a count
+                        unreadable.append(outcome)
                     continue
                 inserted = connection.execute(
                     "INSERT INTO transactions"  # pragma: no mutate
@@ -298,24 +314,30 @@ class Store:
             connection.execute(
                 "UPDATE imports SET added = ?, duplicates = ?, unreadable = ?"  # pragma: no mutate
                 " WHERE id = ?",  # pragma: no mutate
-                (added, duplicates, len(unreadable), import_id),
+                (added, duplicates, unreadable_count, import_id),
             )
-        return ImportSummary(added, duplicates, unreadable)
+        return ImportSummary(added, duplicates, unreadable, unreadable_count)
 
-    def forget_account(self, account: Account) -> None:
-        """Delete the account, its transactions and its import records, all or nothing (AC3)."""
+    def forget_account(self, account: Account, expected: int | None = None) -> int:
+        """Delete the account, its transactions and its import records, all or nothing (AC3).
+
+        ``expected`` is the count the person confirmed: if another copy changed the
+        account since, nothing is deleted. Returns how many transactions went.
+        """
         with self.write() as connection:
-            connection.execute(
+            _still_present(connection, account)
+            count: int = connection.execute(
                 "DELETE FROM transactions WHERE account_id = ?",  # pragma: no mutate
                 (account.id,),
-            )
+            ).rowcount
+            if expected is not None and count != expected:  # the rollback undoes the delete
+                raise RefusedError("nothing forgotten: the account changed after it was read")
             connection.execute(
                 "DELETE FROM imports WHERE account_id = ?",  # pragma: no mutate
                 (account.id,),
             )
-            gone = connection.execute(
+            connection.execute(
                 "DELETE FROM accounts WHERE id = ?",  # pragma: no mutate
                 (account.id,),
-            ).rowcount
-            if gone == 0:
-                raise RefusedError(f'no account named "{account.name}"')
+            )
+        return count
