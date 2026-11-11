@@ -112,8 +112,20 @@ Per slice, the defects each layer found, one line each. Layers: tests, hooks, CI
 
 ## Security audit (whole codebase)
 
-In progress on `final-review` (the security-audit skill, full audit, profile `standard`, the whole repository at `2a803eb`).
+The security-audit skill in full audit mode, profile `standard`, on the whole repository at `2a803eb`, briefed from `docs/review-brief.md` with the trust boundary (statement files and `tally.toml` hostile or mistaken; the data file the user's; nothing leaves the machine). Output outside the repository (`~/security-audit-skill/ledger-a/run-1/`): 38 agents (2 reconnaissance, 13 hunters over 4 waves, 5 critics, 9 + 9 verifiers), 22 coverage units, both validators passing, final-clean critic with no work. Every target run went through an OS sandbox (no network namespace, read-only filesystem but scratch, empty environment, prlimit). 7 confirmed (all low), 2 need validation, none rejected.
+
+- Low, fixed: an OFX FITID already stored for a different transaction made a later genuine one "already there", silently (a forged file suppressed the sample's -500.00 transfer). ADR 0012: reported as an unreadable row unless the date and amount match.
+- Low, fixed: a pre-existing data directory another user could write let them plant a `-wal` file SQLite wrote into (the account name read back by another uid), or a link the data file was created through. The directory must be the user's (tightened to 0700, or refused), and every data and side file absent or the user's own regular file with one link. Phase 5 showed the first fix, tightening alone, still leaked a WAL planted before it.
+- Low, fixed: one CSV record of a million short quoted multi-line fields was held whole, about 10x the file's size (165 MB for 16 MB, past AC18). A record is now bounded as one 2 MiB line is.
+- Low, fixed: an ordinary unanchored pattern (`TESCO.*EXPRESS`) backtracked quadratically over a hostile description, 12 s per command at 256 KB and about 190 s at 1 MB, on every report. A pattern now searches the first 1,000 characters.
+- Low, fixed: argparse's "unrecognised arguments" printed argv raw (a second file name from a glob). The handoff's first item.
+- Low, fixed: an unreadable row's reason reached standard error raw, carrying a layout's `date_format` with an escape.
+- Low, fixed: `--verbose` logged a statement file's name raw.
+- Needs validation, ruled by removing the rule: `Bash(uv run --no-build pip-audit*)` pre-approved `pip-audit -r <any file>`, which pip-installs and ran a build backend in the sandbox whatever `UV_NO_BUILD` said. Whether Claude Code's matcher admits it was not observable; the rule is gone, the audit runs as `scripts/audit.py`.
+- Needs validation, for the owner: on Windows the data file's privacy rests on the inherited ACL, and the tightening branch reports "tightened ... to 0600" on every open after the first. No Windows host; the plan is in the report.
+- Hardening, fixed as contract defects: a non-UTF-8 `tally.toml`, a `data_dir` naming an unknown `~user` or holding a NUL, a `--data-dir` holding a NUL, and a layout encoding holding a NUL each escaped as a traceback, not exit 2; account names in `account list` and `forget` now go through `printable`; `mutation_changed.py` ends git's options before the base ref.
+- Hardening, not fixed (in the report): OFX `ACCTID` is never compared; `seen` holds every distinct description per file (about 4x the file); `account forget` leaves deleted text in free pages (no `secure_delete`); a layout's decimal may be a digit; `check_imports.py`'s ignore marker exempts a whole line; the mutation group's build requirements are not hashed; the plugin marketplace is unpinned.
 
 ## Whole-codebase review 2
 
-Not started.
+In progress.
