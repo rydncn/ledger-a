@@ -1,12 +1,22 @@
 #!/bin/sh
-# Git pre-push hook for a uv-managed Python project: format, lint and type
-# check before anything leaves the machine, whichever agent or person pushes.
+# Git pre-push hook for a uv-managed Python project: format, lint, type check
+# and the project's rule checks before anything leaves the machine, whichever agent or person pushes.
 # The Claude Code hooks cover Claude's own loop; this covers everyone else.
 #
 # Installed by scripts/setup-dev.sh (git config core.hooksPath .claude/hooks).
 # CI runs the same checks; `git push --no-verify` skips this, so CI is the gate.
 
 set -eu
+
+# Nothing reaches main or master by a push, however the command spells it (git push,
+# git push origin HEAD, @): changes reach them by a reviewed merge (ADR 0007).
+while read -r _local _sha remote _remote_sha; do
+  case "$remote" in
+    refs/heads/main|refs/heads/master)
+      echo "pre-push: refusing to push to ${remote#refs/heads/}; open a pull request instead." >&2
+      exit 1 ;;
+  esac
+done
 
 [ -f pyproject.toml ] || exit 0
 command -v uv >/dev/null 2>&1 || { echo "pre-push: uv is not installed, so nothing was checked locally; CI will." >&2; exit 0; }
@@ -22,3 +32,6 @@ run() {
 run uv run --no-build ruff format --check .
 run uv run --no-build ruff check .
 run uv run --no-build mypy
+# The project's rule checks and import allowlist, where it has them (CI runs them too).
+if [ -f scripts/rules.json ]; then run node scripts/check-rules.js scripts/rules.json; fi
+if [ -f scripts/check_imports.py ]; then run uv run --no-build python scripts/check_imports.py; fi

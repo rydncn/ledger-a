@@ -283,3 +283,34 @@ def test_the_installed_command_imports_ofx_and_never_opens_a_doctypes_system_pat
         "the file declares a DOCTYPE, which statements never do\n",
     )
     assert rows(place) == SAVINGS_ROWS
+
+
+FORGED = "<TRNTYPE>DEBIT<DTPOSTED>20261015<TRNAMT>-0.01<FITID>2026101501<NAME>FORGED"
+TAKEN = "its FITID is already used by a different transaction"
+
+
+def test_ac22_a_fitid_already_used_by_a_different_transaction_is_reported_not_dropped(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    place = Place(tmp_path, capsys)
+    forged = ofx_file(tmp_path, SGML_HEADER + statement(FORGED), name="forged.ofx")
+    assert import_ofx(place, forged)[0] == 0
+    assert import_ofx(place, SAMPLE) == (
+        0,
+        "added 1, already there 0, unreadable 1\n",
+        f"transaction 2: {TAKEN}\n",
+    )
+    assert import_ofx(place, forged) == (0, "added 0, already there 1, unreadable 0\n", "")
+
+
+def test_ac22_two_different_transactions_sharing_a_fitid_in_one_file_are_reported(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    place = Place(tmp_path, capsys)
+    other = GOOD.replace("-1.00", "-999.00")
+    file = ofx_file(tmp_path, SGML_HEADER + statement(GOOD, other, GOOD))
+    assert import_ofx(place, file) == (
+        0,
+        "added 1, already there 1, unreadable 1\n",
+        f"transaction 2: {TAKEN}\n",
+    )

@@ -32,6 +32,10 @@ _KEYS = frozenset(
 # alone also reads "1_000", " 5 ", "NaN", "1e5" and Arabic-Indic digits.
 _AMOUNT = re.compile(r"[+-]?[0-9]{1,19}(?:\.[0-9]{1,3})?")
 
+# A pattern searches this much of a description: more than any bank writes, and a bound on
+# what an unanchored pattern costs over a hostile one, which backtracks quadratically.
+MATCHED = 1000
+
 
 @dataclass(frozen=True)
 class Rule:
@@ -69,7 +73,7 @@ class Rule:
             self.contains.casefold() not in entry.description.casefold()
         ):
             return f"description does not contain {self.contains}"
-        if self.matches is not None and self.matches.search(entry.description) is None:
+        if self.matches is not None and self.matches.search(entry.description[:MATCHED]) is None:
             return f"description does not match {self.matches.pattern}"
         if self.above is not None and not entry.amount > self.above:
             return f"amount is not above {self.above}"
@@ -140,6 +144,11 @@ def _rule(position: int, table: Mapping[str, object]) -> Rule:
         raise ConfigError(f"rules[{position}]: {problem}") from None
 
 
+def _hidden(c: str) -> bool:
+    """What a terminal would act on or show otherwise: controls and line or paragraph breaks."""
+    return unicodedata.category(c) in {"Zl", "Zp"} or unicodedata.category(c).startswith("C")
+
+
 def _strings(table: Mapping[str, object]) -> dict[str, str]:
     """The rule's keys as strings, with a name a terminal can show and no empty text."""
     text: dict[str, str] = {}
@@ -153,8 +162,10 @@ def _strings(table: Mapping[str, object]) -> dict[str, str]:
         raise _RuleError("no name")
     if not text["name"].strip():
         raise _RuleError("name must not be empty")
-    if any(unicodedata.category(c).startswith("C") for c in text["name"]):
-        raise _RuleError("name must not contain control characters")
+    if any(_hidden(c) for c in text["name"]):
+        raise _RuleError("name must not contain control characters or line breaks")
+    if text["name"] == "uncategorised":  # the report's table shows no match so
+        raise _RuleError('name must not be "uncategorised", which the report gives no match')
     for key in ("description_contains", "description_matches"):
         if text.get(key) == "":  # would match everything; a rule with only a name says so
             raise _RuleError(f"{key} must not be empty")

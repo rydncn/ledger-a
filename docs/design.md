@@ -108,7 +108,7 @@ Each becomes a test named `test_acNN_...`. "Refused" always means: a message on 
 #### AC3. Forget deletes the account and everything imported into it
 - **Given** accounts `current` and `savings`, each with imported transactions
 - **When** `tally account forget current --yes`
-- **Then** `account list` shows only `savings`; `report` shows only savings' transactions; the import records for `current` are gone. Without `--yes` on a terminal, a prompt names the account and the count of transactions and refuses on anything but `yes`; without `--yes` and not on a terminal, refused with exit 2
+- **Then** `account list` shows only `savings`; `report` shows only savings' transactions; the import records for `current` are gone, and no forgotten description remains in the data file or its WAL (SQLite `secure_delete`; review 2). Without `--yes` on a terminal, a prompt names the account and the count of transactions and refuses on anything but `yes`; without `--yes` and not on a terminal, refused with exit 2
 
 #### AC4. Forgetting an unknown account is refused
 - **Given** no account `old`
@@ -123,7 +123,7 @@ Each becomes a test named `test_acNN_...`. "Refused" always means: a message on 
 #### AC6. The data file is the user's alone, wherever it is
 - **Given** `TALLY_DATA_DIR` set to a fresh path (and, in another case, `--data-dir`)
 - **When** any writing command runs
-- **Then** the directory is created `0700` and the file `0600`; a pre-existing data file with wider permissions is tightened to `0600` and the user is told on standard error
+- **Then** the directory is created `0700` and the file `0600`; a pre-existing data file with wider permissions is tightened to `0600` and the user is told on standard error; a pre-existing data directory that another user owns or can write is refused (exit 1) and left as it is, and so is a data, `-wal`, `-shm` or `-journal` file in it that is a link, has a second hard link or belongs to another user (the whole-codebase audit)
 
 #### AC7. Two copies at once count each transaction once
 - **Given** account `current` and a statement of 2,000 rows
@@ -276,7 +276,7 @@ Each becomes a test named `test_acNN_...`. "Refused" always means: a message on 
 #### AC32. CSV export never runs as a formula
 - **Given** descriptions `=HYPERLINK(...)`, `+1`, `-1`, `@SUM`, one starting with a tab and one with a carriage return
 - **When** `tally report --month 2026-10 --format csv` and `tally uncategorised --format csv`
-- **Then** each such text cell is prefixed with `'`; amount cells match `^-?[0-9]+\.[0-9]{2}$` and are not prefixed; the output parses back with the `csv` module to the same rows; line endings are `\r\n`
+- **Then** each such text cell is prefixed with `'`; amount cells have their currency's own decimal places, matching `^-?[0-9]+$` for a currency with none and `^-?[0-9]+\.[0-9]{n}$` for one with `n` (ADR 0011), and are not prefixed; the output parses back with the `csv` module to the same rows; line endings are `\r\n`
 
 #### AC33. Colour never carries meaning and turns off
 - **Given** a report with negative totals
@@ -291,7 +291,7 @@ Each becomes a test named `test_acNN_...`. "Refused" always means: a message on 
 #### AC35. Every report has a plain, machine-readable form
 - **Given** `report`, `payees`, `uncategorised`, `explain`, `account list`, `import`
 - **When** run with `--format json`, and with `--format csv` for the tabular ones
-- **Then** the JSON has the documented field names and the CSV the documented headers, both the same rows as the table; amounts are strings with two decimals (never JSON numbers)
+- **Then** the JSON has the documented field names and the CSV the documented headers, both the same rows as the table; amounts are strings with their currency's own decimal places, `1200` for JPY, `1.234` for BHD, `-4.20` for GBP (never JSON numbers; ADR 0011)
 
 #### AC36. Nothing converts between currencies
 - **Given** a GBP account and an EUR account with transactions in the same month
@@ -331,7 +331,7 @@ Each becomes a test named `test_acNN_...`. "Refused" always means: a message on 
 
 **The four questions, asked of the design:**
 
-- *What does another parser do with this input?* A spreadsheet opening the export (AC32: formula prefix on text cells, amounts constrained to a number shape). The terminal (AC38: control characters). SQLite (every statement is parameterised; a review item, since no grep proves it). The XML parser (AC39: no DOCTYPE, so no entity expansion or external fetch). Python's `csv` module (AC12, AC40: quoted fields and a field-size limit so one field can't take all memory). The regex engine on the user's own patterns (AC29: compiled once, errors named; a pathological pattern costs the user their own CPU, accepted). `strptime` (AC13: `31/02/2026` is unreadable, not February 31st normalised). The date in a report's own `--month` (AC37).
+- *What does another parser do with this input?* A spreadsheet opening the export (AC32: formula prefix on text cells, amounts constrained to a number shape). The terminal (AC38: control characters). SQLite (every statement is parameterised; a review item, since no grep proves it). The XML parser (AC39: no DOCTYPE, so no entity expansion or external fetch). Python's `csv` module (AC12, AC40: quoted fields and a field-size limit so one field can't take all memory). The regex engine on the user's own patterns (AC29: compiled once, errors named; a pathological pattern costs the user their own CPU, accepted; a pattern searches only a description's first 1,000 characters, because an ordinary unanchored pattern such as `TESCO.*EXPRESS` backtracks quadratically over a hostile 1 MB description, minutes per row on every report, found by the whole-codebase audit). `strptime` (AC13: `31/02/2026` is unreadable, not February 31st normalised). The date in a report's own `--month` (AC37).
 - *What happens when two of these run at once?* Two imports (AC7). A copy that cannot get in (AC8). A report during an import reads the committed state (WAL). Two `account add` of the same name: the `UNIQUE` constraint, so one is refused (AC2).
 - *What does a flood cost?* A huge file: streamed, memory bounded (AC18). One huge field (AC40). A deeply nested OFX (AC41). Rows that are all unreadable: each costs one message, and the summary is bounded; standard error lists at most 50 line reasons and then a count (AC13). A rules file with thousands of rules: linear per transaction, accepted.
 - *What can one account do to a result other people rely on?* Nothing shared exists: one user, one machine, no network. The analogue inside Tally is one account's figures leaking into another's: currencies are never summed across accounts (AC36), and `forget` removes exactly one account's rows (AC3).

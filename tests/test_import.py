@@ -342,7 +342,7 @@ def test_ac19_verbose_is_off_by_default_and_leaves_nothing_behind(
         ),
         (["import", "--account", "current"], "file"),
         (["import", "--account", "current", "--layout", "bank"], "file"),
-        (["import", "--account", "a\tb", "--layout", "bank", "x.csv"], "must not contain"),
+        (["import", "--account", "  ", "--layout", "bank", "x.csv"], "must not be empty"),
         (["import", "--account", " ", "--layout", "bank", "x.csv"], "must not be empty"),
     ],
 )
@@ -696,3 +696,57 @@ def test_ac05_an_account_forgotten_by_another_copy_during_the_import_is_refused(
     connection = sqlite3.connect(tmp_path / "tally.sqlite")
     assert connection.execute("SELECT count(*) FROM imports").fetchone() == (0,)
     connection.close()
+
+
+ESC = chr(0x1B)
+BEL = chr(0x07)
+
+
+def test_ac38_an_unreadable_rows_reason_shows_controls_from_the_configuration(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    place = Place(tmp_path, capsys)
+    hostile = f"%d/%m/%Y{ESC}]0;x{BEL}"
+    place.config.write_text(
+        CONFIG.replace('date_format = "%d/%m/%Y"', 'date_format = "%d/%m/%Y\\u001b]0;x\\u0007"'),
+        encoding="utf-8",
+    )
+    code, _, err = place.import_(bank_file(tmp_path, "not a date,SHOP,1.00,,"))
+    assert code == 0
+    assert "line 2: date does not match %d/%m/%Y␛]0;x␇\n" in err
+    assert ESC not in err
+    assert BEL not in err
+    assert hostile not in err
+
+
+def test_ac38_verbose_logging_shows_controls_in_a_file_name(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    place = Place(tmp_path, capsys)
+    file = bank_file(tmp_path, "06/10/2026,SHOP,1.00,,", name=f"statement{ESC}[2J.csv")
+    code, _, err = place.import_(file, "--verbose")
+    assert code == 0
+    assert "statement␛[2J.csv" in err
+    assert ESC not in err
+
+
+def test_ac40_a_record_of_many_quoted_lines_is_bounded_and_refused(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    place = Place(tmp_path, capsys)
+    # One record of a million short quoted fields, each holding a line break: every physical
+    # line is short, so only a bound on the record keeps it from being held whole.
+    path = tmp_path / "many-lines.csv"
+    path.write_bytes(
+        HEADER.encode() + b'"x\n",' * 1_000_000 + b'"x"\r\n' + b"06/10/2026,AFTER,1.00,,\r\n"
+    )
+    tracemalloc.start()
+    try:
+        code, _, err = place.import_(path)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert code == 0
+    assert peak < 30 * 1024 * 1024  # about what one 2 MiB line can take; unbounded, 55 MB
+    assert err.startswith("line 2: field longer than 1 MB")
+    assert "AFTER" in [r[1] for r in place.transactions()]

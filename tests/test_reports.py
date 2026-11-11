@@ -508,3 +508,40 @@ def test_ac31_a_huge_description_costs_its_own_line_not_every_line(
     _, out, _ = place.run("payees", *OCTOBER, "--top", "1000")
     assert f"\n{'Y' * 60}  " in out
     assert f"\n{'Z' * 59}…  " in out
+
+
+# AC32 and AC35 as amended by ADR 0011: an amount has its currency's own decimal places.
+PLACES = {"JPY": re.compile(r"^-?[0-9]+$"), "BHD": re.compile(r"^-?[0-9]+\.[0-9]{3}$")}
+
+
+def test_ac32_ac35_amounts_have_their_currencys_own_places_in_csv_and_json(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    place = samples(tmp_path, capsys, rules="")
+    for name, currency in (("yen", "JPY"), ("dinar", "BHD")):
+        assert place.run("account", "add", name, "--currency", currency)[0] == 0
+    add(place, "yen", ("2026-10-20", "RAMEN", -1200), ("2026-10-21", "REFUND", 300))
+    add(place, "dinar", ("2026-10-20", "SOUQ", -1234), ("2026-10-21", "PAY", 5))
+
+    report = [r for r in as_csv(place, "report", *OCTOBER)[1:] if r[1] in PLACES]
+    payees = [r for r in as_csv(place, "payees", *OCTOBER)[1:] if r[0] in PLACES]
+    listed = [r for r in as_csv(place, "uncategorised")[1:] if r[4] in PLACES]
+    cells = (
+        [(r[1], a) for r in report for a in r[3:6]]
+        + [(r[0], r[2]) for r in payees]
+        + [(r[4], r[3]) for r in listed]
+    )
+    report_json = [r for r in as_json(place, "report", *OCTOBER) if r["currency"] in PLACES]
+    payees_json = [r for r in as_json(place, "payees", *OCTOBER) if r["currency"] in PLACES]
+    listed_json = [r for r in as_json(place, "uncategorised") if r["currency"] in PLACES]
+    cells += [
+        (str(r["currency"]), str(r[k])) for r in report_json for k in ("income", "spending", "net")
+    ]
+    cells += [(str(r["currency"]), str(r["total"])) for r in payees_json]
+    cells += [(str(r["currency"]), str(r["amount"])) for r in listed_json]
+    assert {c for c, _ in cells} == set(PLACES)
+    assert len(cells) == 2 * (6 + 2 + 4)
+    assert all(PLACES[currency].match(amount) for currency, amount in cells), cells
+    assert ("JPY", "-1200") in cells
+    assert ("BHD", "-1.234") in cells
+    assert ("BHD", "0.005") in cells

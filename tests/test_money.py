@@ -132,3 +132,12 @@ def test_ac44_a_huge_amount_is_refused_before_it_is_converted() -> None:
     assert time.monotonic() - started < 0.5
     assert to_minor(Decimal("1." + "0" * 300_000), 2) == 100
     assert to_minor(Decimal("0" * 300_000 + "1"), 2) == 100
+
+
+@pytest.mark.parametrize("minus", [chr(c) for c in (0x2212, 0x2013, 0x2014, 0xFF0D)])
+def test_ac44_a_dash_that_is_not_a_hyphen_is_not_a_currency_symbol(minus: str) -> None:
+    # Read as a symbol and dropped, a typographic minus made a debit a credit.
+    with pytest.raises(AmountError):
+        parse_amount(f"{minus}12.50", ".", ",")
+    assert parse_amount("£12.50", ".", ",") == Decimal("12.50")
+    assert parse_amount("-€12.50", ".", ",") == Decimal("-12.50")

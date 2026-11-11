@@ -4,9 +4,9 @@
 
 | File | Copy to | What it does |
 | --- | --- | --- |
-| [`checks.json`](checks.json) | `.claude/checks.json` | The edit hook formats the edited file with `ruff format` and lints it with `ruff check`; the stop hook runs the format check, the lint, `mypy` and the tests. |
+| [`checks.json`](checks.json) | `.claude/checks.json` | The edit hook formats the edited file with `ruff format` and lints it with `ruff check`; the stop hook runs the format check, the lint, `mypy` and the tests. A project with `scripts/rules.json` or an import allowlist adds those two to `beforeStop`, as Tally's does: otherwise they run only in CI and `pre-push`. |
 | [`ci.yml`](ci.yml) | `.github/workflows/ci.yml` | Format, lint, types and rule checks on every push; shuffled parallel tests, mutation testing on changed files, lockfile integrity, `pip-audit`, gitleaks, zizmor and the agent configuration step once the pull request is ready. |
-| [`pre-push`](pre-push) | `.claude/hooks/pre-push` | Format, lint and type check before any push, for tools and people outside Claude Code. |
+| [`pre-push`](pre-push) | `.claude/hooks/pre-push` | Refuses a push to `main` or `master` however the command spells it, then format, lint, type check, and the project's rule checks and import allowlist where it has them, before any push, for tools and people outside Claude Code. |
 | [`mutation_changed.py`](mutation_changed.py) | `scripts/` | Rule 15's mutation testing on the files a change touches, with mutmut. |
 | [`audit.py`](audit.py) | `scripts/` | `pip-audit` over the exported lockfile with a dated allowlist, like `templates/audit`. |
 | [`check_lock.py`](check_lock.py) | `scripts/` | The lockfile only points at PyPI over HTTPS with a sha256 on every file, like lockfile-lint. |
@@ -32,7 +32,7 @@
 
 ## Permissions to allow
 
-Beside the template's deny and ask rules: `Bash(uv run --no-build ruff *)`, `Bash(uv run --no-build mypy*)`, `Bash(uv run --no-build pytest*)`, `Bash(uv run --no-build pip-audit*)`, one `Bash(uv run --no-build python scripts/<name>.py*)` per script (not `scripts/*`, which would let the agent run any script it writes there unprompted), `Bash(uv sync --locked --no-build*)`, `Bash(uv lock --check*)`, `Bash(node scripts/check-rules.js*)`. Ask before `uv publish`, `uv build` and `twine`.
+Beside the template's deny and ask rules: `Bash(uv run --no-build ruff *)`, `Bash(uv run --no-build mypy*)`, `Bash(uv run --no-build pytest*)`, one `Bash(uv run --no-build python scripts/<name>.py*)` per script (not `scripts/*`, which would let the agent run any script it writes there unprompted), `Bash(uv sync --locked --no-build*)`, `Bash(uv lock --check*)`, `Bash(node scripts/check-rules.js*)`. Ask before `uv publish`, `uv build` and `twine`. Never `Bash(uv run --no-build pip-audit*)`: without `--disable-pip`, `pip-audit -r <file>` pip-installs the file's requirements and runs their build backends, which `UV_NO_BUILD` does not stop (the whole-codebase audit observed it); the audit runs through `scripts/audit.py`, allowed by name.
 
 ## What the trial learned
 
@@ -44,22 +44,42 @@ Beside the template's deny and ask rules: `Bash(uv run --no-build ruff *)`, `Bas
 - **mutmut 3 config keys:** `source_paths` (not the deprecated `paths_to_mutate`) and the tests directory through pytest's own arguments; it copies `tests/`, `pyproject.toml` and `uv.lock` into `mutants/` itself.
 - **The pack's pieces need Node too:** the hooks and the rule check are Node scripts, which the playbook says; a Python-only machine needs Node installed for them. GitHub's runners have it.
 
+- **The shell is a blind spot for the after-edit hook.** Edits made with a heredoc or `sed` get no format or lint feedback; in the trial's last session the `pre-push` lint caught two such edits before anything left. The rule check `no-raw-control-character` (C0 but tab and line feed, and DEL, in source) makes the `chr()` lesson a gate for ESC and its kind; ruff's RUF001 and PLE2502 cover the dashes and the bidi overrides.
+- **`--end-of-options` before a ref from the command line** (`mutation_changed.py`): a base starting `--` was passed to `git diff` as an option.
+- **Never allow `pip-audit*` by prefix.** Without `--disable-pip`, `pip-audit -r <file>` pip-installs the file and ran its build backend in the trial's audit, whatever `UV_NO_BUILD` said. Allow the audit script by name.
+- **A security audit's sandbox in a cloud container:** `unshare -m -n -p -f`, a recursive read-only remount of `/` with the agent's scratch bound writable, `env -i` with a short allowlist, and `prlimit`. The trial wrote it for the audit (`~/security-audit-skill/<repo>/run-<n>/bin/sandbox.sh`); it belongs here or in the skill.
+
 ## Measuring a session
 
 Rule 17's budget counts what a session added since its first reply. The same arithmetic as `context-budget.mjs`, for the record in `docs/effort.md`, from the session's transcript (`~/.claude/projects/<project>/<session>.jsonl`):
 
 ```python
 import json, sys
-start = last = None; peak = 0
+
+start = last = None
+peak = 0
 for line in open(sys.argv[1], encoding="utf-8"):
-    try: row = json.loads(line)
-    except ValueError: continue
+    try:
+        row = json.loads(line)
+    except ValueError:
+        continue
     if row.get("type") == "system" and row.get("subtype") == "compact_boundary":
-        start = None; continue
+        start = None
+        continue
     usage = (row.get("message") or {}).get("usage")
-    if row.get("type") != "assistant" or row.get("isSidechain") or not usage: continue
-    last = sum(usage.get(k, 0) for k in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens", "output_tokens"))
-    peak = max(peak, last); start = start if start is not None else last
+    if row.get("type") != "assistant" or row.get("isSidechain") or not usage:
+        continue
+    last = sum(
+        usage.get(k, 0)
+        for k in (
+            "input_tokens",
+            "cache_read_input_tokens",
+            "cache_creation_input_tokens",
+            "output_tokens",
+        )
+    )
+    peak = max(peak, last)
+    start = start if start is not None else last
 print(f"start {start:,} peak {peak:,} added at peak {peak - start:,}")
 ```
 

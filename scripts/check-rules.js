@@ -149,7 +149,13 @@ function checkSource(rule, source, relPath) {
       rule: rule.id,
       file: relPath,
       line,
-      text: lines[line - 1].trim(),
+      // Controls shown as \xNN, so the line that broke a rule cannot drive the terminal.
+      text: lines[line - 1]
+        .trim()
+        .replace(
+          /[\u0000-\u0008\u000b-\u001f\u007f]/g,
+          (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, "0")}`,
+        ),
     });
   }
   return found;

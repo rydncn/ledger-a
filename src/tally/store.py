@@ -167,10 +167,37 @@ def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
+FINGERPRINT_TAKEN = "its FITID is already used by a different transaction"
+
+
+def _taken(connection: sqlite3.Connection, account: Account, row: Transaction) -> bool:
+    """Whether this fingerprint is already stored for a different date or amount.
+
+    A fingerprint is the file's claim: only an OFX FITID can be reused for a different
+    transaction, since a CSV fingerprint holds both (ADR 0012). The description may differ:
+    a bank's re-export renames payees.
+    """
+    found = connection.execute(
+        "SELECT date, amount_minor FROM transactions"  # pragma: no mutate
+        " WHERE account_id = ? AND fingerprint = ?",  # pragma: no mutate
+        (account.id, row.fingerprint),
+    ).fetchone()
+    return found is not None and tuple(found) != (row.date, row.amount_minor)
+
+
+SIDE_FILES = ("-wal", "-shm", "-journal")  # what SQLite opens beside the data file
+
+
 class Store:
     """An open data file. ``tightened`` says a wider permission was corrected on open."""
 
-    def __init__(self, connection: sqlite3.Connection, *, path: Path, tightened: bool) -> None:
+    def __init__(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        path: Path,
+        tightened: bool,
+    ) -> None:
         self._connection = connection
         self._path = path
         self.tightened = tightened
@@ -179,14 +206,36 @@ class Store:
     def open(cls, data_dir: Path) -> Self:
         """Open the data file under ``data_dir``, creating both privately, and migrate."""
         data_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        # The directory is checked before any file in it opens: whoever can write it can plant
+        # a -wal file SQLite would write into, or a link the file would be created through.
+        info = data_dir.stat()
+        if hasattr(os, "geteuid") and info.st_uid != os.geteuid():
+            raise RefusedError(f"the data directory {data_dir} belongs to another user")
+        # Readable by others is no risk (the files are 0600); writable is. A directory that
+        # was there already, perhaps the user's home, is not Tally's to change: refused.
+        if stat.S_IMODE(info.st_mode) & 0o022:
+            raise RefusedError(f"other users can write the data directory {data_dir}")
         path = data_dir / DATA_FILE
         tightened = False
-        if path.exists():
-            if stat.S_IMODE(path.stat().st_mode) & 0o077:
-                path.chmod(0o600)
+        # A file planted while the directory was writable outlives any check of it, so every
+        # file SQLite will open here must be absent or the user's own: regular, one link.
+        for side in (path, *(data_dir / f"{DATA_FILE}{end}" for end in SIDE_FILES)):
+            try:
+                found = os.lstat(side)
+            except FileNotFoundError:
+                continue
+            ours = not hasattr(os, "geteuid") or found.st_uid == os.geteuid()
+            if not (stat.S_ISREG(found.st_mode) and found.st_nlink == 1 and ours):
+                raise RefusedError(f"{side} is not a file of your own")
+            if stat.S_IMODE(found.st_mode) & 0o077:
+                side.chmod(0o600)
                 tightened = True
-        else:
-            os.close(os.open(path, os.O_CREAT | os.O_WRONLY, 0o600))
+        if not path.exists():
+            # no mutate: the lstat check above refuses a link first; O_NOFOLLOW guards a race
+            nofollow = getattr(os, "O_NOFOLLOW", 0)  # pragma: no mutate
+            # no mutate: opened only to be created and closed, so any access mode will do
+            flags = os.O_CREAT | os.O_WRONLY | nofollow  # pragma: no mutate
+            os.close(os.open(path, flags, 0o600))
         connection = sqlite3.connect(  # autocommit: Python opens no transaction of its own
             path,
             timeout=BUSY_TIMEOUT_SECONDS,
@@ -197,6 +246,8 @@ class Store:
             with _busy_is_locked():
                 _switch_to_wal(connection)
                 connection.execute("PRAGMA foreign_keys=ON")  # pragma: no mutate
+                # forget means gone: freed pages are zeroed, in the WAL and the file
+                connection.execute("PRAGMA secure_delete=ON")  # pragma: no mutate (SQL case)
                 store._migrate()
         except sqlite3.DatabaseError as error:
             connection.close()
@@ -339,7 +390,9 @@ class Store:
                 " VALUES (?, ?, ?, 0, 0, 0) RETURNING id",  # pragma: no mutate
                 (account.id, file, _now()),
             ).fetchone()
-            for outcome in outcomes:
+            for read in outcomes:
+                taken = not isinstance(read, Unreadable) and _taken(connection, account, read)
+                outcome = Unreadable(read.line, FINGERPRINT_TAKEN) if taken else read
                 if isinstance(outcome, Unreadable):
                     unreadable_count += 1
                     if unreadable_count <= UNREADABLE_KEPT:  # a flood of them costs a count

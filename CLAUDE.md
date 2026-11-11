@@ -23,7 +23,7 @@ uv run python scripts/audit.py             # Dependency audit with the dated all
 
 `UV_NO_BUILD=1` is set for every session in `.claude/settings.json`: installs refuse source builds. The one exception is the mutation group (ADR 0003).
 
-Commands that publish or push are set to ask first in `.claude/settings.json`. Never work around that.
+Commands that publish, merge or rewrite are set to ask first in `.claude/settings.json`: a push to `main` or `master`, a force push, a deletion or mirror, a push with `--no-verify` or through `git -C`/`-c`, `gh pr merge`, `create` and `ready`, `gh api` with a method or fields, the GitHub tools that merge, push files or make branches, releases and publishing. A plain push of a named branch does not ask, and nor does the GitHub tool that edits a pull request's description or marks it ready: CI and the owner's merge are their gate (ADR 0007). Whatever the command, the `pre-push` hook refuses a push to `main` or `master`. Never work around that.
 
 At the start of a session, if the plugin check reports missing plugins, tell the user before starting work rather than doing their steps by hand.
 
@@ -47,7 +47,7 @@ Decisions and the options rejected for them are in `docs/decisions/`. Read the r
 - **No network.** Checked by the `no-network` rule check over `src/` (the standard library's network modules and the common third-party clients), by `scripts/check_imports.py`, which reads every import from the syntax tree and fails on one outside its allowed list (an alias or a from-import passes a word check), and by having no runtime dependencies at all.
 - **Nothing personal in output the user didn't ask for.** Error messages name the file, the line number and the reason, never the row's content; logging is off unless `--verbose`, and even then descriptions and amounts are not logged. Tested by the error-message tests, which import a hostile file and assert its descriptions appear nowhere in standard error.
 - **The data file is the user's alone.** Created with mode `0600` inside a directory created `0700`; the permission test fails when either is wider.
-- **Statement files are hostile input.** Every importer is tested with a byte order mark, Windows line endings, Latin-1, quoted fields with commas, formula-looking descriptions, a file that isn't a statement, and a very large file (bounded memory: streamed, never read whole). CSV export escapes any text cell starting with `=`, `+`, `-`, `@`, a tab or a carriage return, so a spreadsheet never runs it; amount cells are plain decimals matching `-?\d+\.\d{2}` and are never prefixed.
+- **Statement files are hostile input.** Every importer is tested with a byte order mark, Windows line endings, Latin-1, quoted fields with commas, formula-looking descriptions, a file that isn't a statement, and a very large file (bounded memory: streamed, never read whole). CSV export escapes any text cell starting with `=`, `+`, `-`, `@`, a tab or a carriage return, so a spreadsheet never runs it; amount cells are plain decimals with the currency's own places (`-?\d+` for none, `-?\d+\.\d{n}` for `n`, ADR 0011) and are never prefixed.
 - **Two copies at once.** Every import runs in one `BEGIN IMMEDIATE` transaction with a busy timeout; the two-process test imports the same file from two processes at once and asserts the count is right.
 
 ## Conventions

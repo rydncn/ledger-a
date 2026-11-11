@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from tally.cli import main
 from tally.config import Config, ConfigError, data_dir_for, load_config
 
 
@@ -95,6 +96,44 @@ def test_an_explicit_file_that_is_missing_is_an_error(
         load_config(None)
 
 
+@pytest.mark.parametrize(
+    ("toml", "named"),
+    [
+        (b'data_dir = "caf\xe9"\n', "not UTF-8 text"),  # Latin-1, as a copied file might be
+        (b'data_dir = "~nosuchuser-for-tally/d"\n', "data_dir"),  # no such user for ~
+        (b'data_dir = "a\\u0000b"\n', "data_dir"),  # a NUL, which no path can hold
+        (
+            b'[layouts.x]\ndate = "D"\ndescription = "T"\namount = "A"\n'
+            b'date_format = "%Y"\nencoding = "utf\\u00008"\n',
+            "encoding",
+        ),
+    ],
+)
+def test_ac34_every_configuration_error_is_one_line_and_exit_2(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], toml: bytes, named: str
+) -> None:
+    config = tmp_path / "tally.toml"
+    config.write_bytes(toml)
+    argv = ["import", "x.csv", "--account", "a", "--layout", "x", "--config", str(config)]
+    code = main([*argv, "--data-dir", str(tmp_path / "data")] if b"data_dir" not in toml else argv)
+    captured = capsys.readouterr()
+    assert (code, captured.out) == (2, "")
+    assert named in captured.err
+    assert captured.err.count("\n") == 1
+    assert not (tmp_path / "data").exists()
+
+
+def test_ac34_a_data_directory_flag_holding_a_nul_is_exit_2(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # The variable cannot hold one: the environment refuses a NUL before Tally runs.
+    code = main(["account", "list", "--data-dir", str(tmp_path / "a") + chr(0) + "b"])
+    captured = capsys.readouterr()
+    assert (code, captured.out) == (2, "")
+    assert "data directory" in captured.err
+    assert captured.err.count("\n") == 1
+
+
 def test_data_dir_order_is_flag_variable_config_default(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -105,3 +144,9 @@ def test_data_dir_order_is_flag_variable_config_default(
     monkeypatch.setenv("TALLY_DATA_DIR", str(tmp_path / "variable"))
     assert data_dir_for(None, configured) == tmp_path / "variable"
     assert data_dir_for(str(tmp_path / "flag"), configured) == tmp_path / "flag"
+
+
+def test_a_data_directory_holding_a_nul_is_refused_by_name() -> None:
+    with pytest.raises(ConfigError) as raised:
+        data_dir_for("a" + chr(0) + "b", Config(path=None, data_dir=None))
+    assert str(raised.value) == "the data directory's name must not hold a NUL character"

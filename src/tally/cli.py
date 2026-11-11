@@ -9,6 +9,7 @@ when another copy of Tally holds the data file.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import csv
 import io
 import json
@@ -21,7 +22,7 @@ import unicodedata
 from collections.abc import Sequence
 from itertools import groupby
 from pathlib import Path
-from typing import TextIO, TypedDict
+from typing import NoReturn, TextIO, TypedDict
 
 from tally import __version__
 from tally.config import Config, ConfigError, data_dir_for, load_config
@@ -85,8 +86,16 @@ def account_name(text: str) -> str:
     name = text.strip()
     if not name:
         raise argparse.ArgumentTypeError("must not be empty")
-    if any(unicodedata.category(c).startswith("C") for c in name):
+    if printable(name) != name:  # what the terminal would show otherwise, a line break too
         raise argparse.ArgumentTypeError("must not contain control characters or line breaks")
+    return name
+
+
+def existing_name(text: str) -> str:
+    """An account to look up: any name ``add`` once took, so none is left unreachable."""
+    name = text.strip()
+    if not name:
+        raise argparse.ArgumentTypeError("must not be empty")
     return name
 
 
@@ -112,9 +121,17 @@ def currency_code(text: str) -> str:
     return text.upper()
 
 
+class _Parser(argparse.ArgumentParser):
+    """argparse, with its own messages made printable: they quote the command line (AC38)."""
+
+    def error(self, message: str) -> NoReturn:
+        self.print_usage(sys.stderr)
+        self.exit(EXIT_USAGE, f"{self.prog}: error: {printable(message)}\n")
+
+
 def build_parser() -> argparse.ArgumentParser:
-    """The top-level parser, with one subparser per command."""
-    parser = argparse.ArgumentParser(
+    """The top-level parser, with one subparser per command (each a ``_Parser`` too)."""
+    parser = _Parser(
         prog="tally",
         description="See where your money goes, from your bank's statement files.",
         **STRICT,
@@ -122,7 +139,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"tally {__version__}")
     commands = parser.add_subparsers(dest="command", metavar="<command>")
 
-    common = argparse.ArgumentParser(add_help=False)  # pragma: no mutate (None is False here)
+    common = _Parser(add_help=False)  # pragma: no mutate (None is False here)
     common.add_argument("--config", metavar="FILE", help="the tally.toml to read")
     common.add_argument("--data-dir", metavar="DIR", help="where the data file lives")
 
@@ -143,7 +160,7 @@ def build_parser() -> argparse.ArgumentParser:
         **STRICT,
         help="delete an account and everything imported into it",
     )
-    forget.add_argument("name", type=account_name)
+    forget.add_argument("name", type=existing_name)
     forget.add_argument("--yes", action="store_true", help="do not ask first")
     forget.set_defaults(run=account_forget)
 
@@ -155,7 +172,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     importing.add_argument("file", help="a CSV or OFX statement")
     importing.add_argument(
-        "--account", required=True, type=account_name, help="the account the statement belongs to"
+        "--account", required=True, type=existing_name, help="the account the statement belongs to"
     )
     importing.add_argument(
         "--layout", metavar="NAME", help="the [layouts.NAME] table that describes the CSV"
@@ -186,7 +203,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     explain.set_defaults(run=explain_run)
 
-    period = argparse.ArgumentParser(add_help=False, parents=[common])  # pragma: no mutate
+    period = _Parser(add_help=False, parents=[common])  # pragma: no mutate
     period.add_argument("--month", type=month, help="one month, e.g. 2026-10")
     period.add_argument(
         "--from", dest="first", type=month, metavar="MONTH", help="the first month, inclusive"
@@ -232,7 +249,7 @@ def account_list(args: argparse.Namespace, config: Config) -> int:
         accounts = store.accounts()
     if args.format == "table":
         for a in accounts:
-            print(f"{a.name} {a.currency}")
+            print(printable(f"{a.name} {a.currency}"))
     elif args.format == "csv":
         writer = csv.writer(_csv_stdout())
         writer.writerow(("name", "currency"))
@@ -252,22 +269,30 @@ def _forget(args: argparse.Namespace, store: Store) -> int:
     if account is None:
         raise RefusedError(f'no account named "{args.name}"')
     count = store.transaction_count(account)
+    shown = printable(account.name)  # names refuse controls, but a line separator is not one
     if not args.yes:
         if sys.stdin is None or not sys.stdin.isatty():
             print(
-                f'forgetting "{account.name}" needs --yes when standard input is not a terminal',
+                f'forgetting "{shown}" needs --yes when standard input is not a terminal',
                 file=sys.stderr,
             )
             return EXIT_USAGE
         sys.stderr.write(
-            f'Forget account "{account.name}" and its {count} transactions? Type yes to continue: '
+            f'Forget account "{shown}" and its {count} transactions? Type yes to continue: '
         )
         sys.stderr.flush()
         if sys.stdin.readline().strip() != "yes":
             raise RefusedError("nothing forgotten")
     count = store.forget_account(account, expected=None if args.yes else count)
-    print(f'forgot account "{account.name}" and its {count} transactions', file=sys.stderr)
+    print(f'forgot account "{shown}" and its {count} transactions', file=sys.stderr)
     return EXIT_OK
+
+
+class _Printable(logging.Formatter):
+    """Log lines made printable, as every other message is."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        return printable(super().format(record))
 
 
 def import_run(args: argparse.Namespace, config: Config) -> int:
@@ -276,6 +301,7 @@ def import_run(args: argparse.Namespace, config: Config) -> int:
         return _import(args, config)
     log = logging.getLogger("tally")  # pragma: no mutate (the root logger carries the same lines)
     handler = logging.StreamHandler(sys.stderr)  # pragma: no mutate (None is standard error too)
+    handler.setFormatter(_Printable())  # a logged path is the file's own name (AC38)
     log.addHandler(handler)
     log.setLevel(logging.INFO)
     try:
@@ -313,7 +339,7 @@ def _import(args: argparse.Namespace, config: Config) -> int:
         summary = store.import_transactions(account, shown, outcomes)
     where = "line" if layout is not None else "transaction"  # what a row's number counts
     for unreadable in summary.unreadable[:UNREADABLE_LINES_SHOWN]:
-        print(f"{where} {unreadable.line}: {unreadable.reason}", file=sys.stderr)
+        print(printable(f"{where} {unreadable.line}: {unreadable.reason}"), file=sys.stderr)
     if summary.unreadable_count > UNREADABLE_LINES_SHOWN:
         print(f"and {summary.unreadable_count - UNREADABLE_LINES_SHOWN} more", file=sys.stderr)
     if args.format == "table":
@@ -586,6 +612,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.print_usage(sys.stderr)
         return EXIT_USAGE
     try:
+        code = _run(args)
+        sys.stdout.flush()  # here, so a closed pipe is met inside the try and not at exit
+    except BrokenPipeError:
+        # Whoever read standard output went away (``| head``): nothing to say, and nothing
+        # more may be written, or the interpreter reports the pipe again as it exits.
+        # no mutate: only a real process flushes at exit, and mutmut sees no subprocess; the
+        # closed-pipe subprocess test fails without these two lines
+        quiet = contextlib.suppress(OSError, ValueError)  # pragma: no mutate
+        with quiet:
+            devnull = os.open(os.devnull, os.O_WRONLY)  # pragma: no mutate
+            os.dup2(devnull, sys.stdout.fileno())  # pragma: no mutate
+        return EXIT_REFUSED
+    return code
+
+
+def _run(args: argparse.Namespace) -> int:
+    """The command, with each refusal made one line on standard error and its exit code."""
+    try:
         config = load_config(args.config)
         code: int = args.run(args, config)
     # Every message goes through printable: keys, paths and names can come from the user's
@@ -602,6 +646,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     except LockedError as error:
         print(printable(str(error)), file=sys.stderr)
         return EXIT_LOCKED
+    except BrokenPipeError:
+        raise  # standard output, not the data file: ``main`` ends quietly
     except OSError as error:
         message = f"cannot open the data file: {error.strerror}: {error.filename}"
         print(printable(message), file=sys.stderr)
