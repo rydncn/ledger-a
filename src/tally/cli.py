@@ -292,7 +292,7 @@ def _line(entry: Entry) -> str:
 def _cell(text: str) -> str:
     """A CSV text cell: replaced as on the terminal, and quoted so a spreadsheet never runs it."""
     shown = printable(text)
-    return f"'{shown}" if shown.startswith(_FORMULA) else shown
+    return f"'{shown}" if text.startswith(_FORMULA) else shown  # decided by the original (AC32)
 
 
 def uncategorised(args: argparse.Namespace, config: Config) -> int:
@@ -366,18 +366,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         config = load_config(args.config)
         code: int = args.run(args, config)
-    except ConfigError as error:  # it can quote the file's own keys, which may hold controls
+    # Every message goes through printable: keys, paths and names can come from the user's
+    # own configuration or environment, and may hold controls (AC38).
+    except ConfigError as error:
         print(printable(str(error)), file=sys.stderr)
         return EXIT_USAGE
     except (RefusedError, NotAStatementError, sqlite3.Error) as error:
         failed = isinstance(error, sqlite3.Error)  # a damaged file, a full disk: no data in it
-        print(f"the data file failed: {error}" if failed else error, file=sys.stderr)
+        print(
+            printable(f"the data file failed: {error}" if failed else str(error)), file=sys.stderr
+        )
         return EXIT_REFUSED
     except LockedError as error:
-        print(error, file=sys.stderr)
+        print(printable(str(error)), file=sys.stderr)
         return EXIT_LOCKED
     except OSError as error:
-        print(f"cannot open the data file: {error.strerror}: {error.filename}", file=sys.stderr)
+        message = f"cannot open the data file: {error.strerror}: {error.filename}"
+        print(printable(message), file=sys.stderr)
         return EXIT_REFUSED
     return code
 

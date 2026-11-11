@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from tally.cli import main
+from tally.cli import _cell, main
 from tests import SAMPLES
 from tests.test_import import CONFIG, Place, bank_file, console_script
 
@@ -367,6 +367,28 @@ def test_ac38_control_characters_in_descriptions_never_reach_the_terminal(
     assert [r["description"] for r in json.loads(out) if r["id"] == 11] == [evil]
     assert "\x1b" not in out
     assert explained(place, 11)["description"] == evil
+
+
+def test_ac38_a_control_character_in_a_data_directory_error_is_replaced(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "afile").write_text("", encoding="utf-8")
+    config = tmp_path / "tally.toml"
+    config.write_text('data_dir = "afile/\\u001b]0;pwned\\u0007"\n', encoding="utf-8")
+    code = main(["uncategorised", "--config", str(config)])
+    captured = capsys.readouterr()
+    assert (code, captured.out) == (1, "")
+    assert "␛]0;pwned␇" in captured.err
+    assert "\x1b" not in captured.err
+    assert "\x07" not in captured.err
+
+
+@pytest.mark.parametrize(
+    ("text", "cell"),
+    [("\tX", "'␉X"), ("\rX", "'␍X"), ("=1", "'=1"), ("X\x1b", "X␛"), ("2026-10-01", "2026-10-01")],
+)
+def test_ac32_a_csv_cell_is_prefixed_by_what_the_text_starts_with(text: str, cell: str) -> None:
+    assert _cell(text) == cell
 
 
 def test_ac38_a_control_character_in_a_configuration_error_is_replaced(
