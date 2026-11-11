@@ -274,7 +274,7 @@ def read(path: Path, layout: Layout, scale: int) -> Iterator[Transaction | Unrea
                 continue  # a blank line carries no row
             count += 1
             outcome = rows.outcome(cells, start)
-            if isinstance(outcome, Unreadable):
+            if isinstance(outcome, Unreadable) and lines.number != start:
                 outcome = Unreadable(start, _spanning(outcome.reason, lines.number, start))
             yield outcome
         log.info("read %d rows", count)

@@ -147,6 +147,8 @@ options:
         ["import", "--acc", "c", "--lay", "bank", "x.csv"],
         ["account", "list", "--data", "d"],
         ["--vers"],
+        ["account", "--he"],
+        ["import", "--he"],
     ],
 )
 def test_an_abbreviated_option_is_a_usage_error(
@@ -158,6 +160,7 @@ def test_an_abbreviated_option_is_a_usage_error(
     captured = capsys.readouterr()
     assert (raised.value.code, captured.out) == (2, "")
     assert "unrecognized arguments" in captured.err or "required" in captured.err
+    assert "usage:" in captured.err  # not the help screen, which goes to standard output
 
 
 @pytest.mark.parametrize(

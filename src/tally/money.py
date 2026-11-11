@@ -121,5 +121,5 @@ def to_minor(amount: Decimal, scale: int) -> int:
 
 def from_minor(minor: int, scale: int) -> Decimal:
     """Integer minor units back to an exact amount with ``scale`` decimal places."""
-    digits = str(abs(minor)).rjust(scale + 1, "0")  # 5 at scale 2 is 0.05
-    return Decimal((int(minor < 0), tuple(map(int, digits)), -scale))  # from digits: exact
+    digits = tuple(map(int, str(abs(minor))))
+    return Decimal((int(minor < 0), digits, -scale))  # from digits, never arithmetic: exact

@@ -109,6 +109,19 @@ def test_ac03_forget_refuses_when_the_account_changed_after_the_person_confirmed
         assert store.forget_account(account, expected=1) == 1
 
 
+def test_ac03_forget_with_yes_confirms_no_count(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With --yes nobody saw a count, so a count read before the lock decides nothing."""
+    add(tmp_path, "current", "GBP", capsys)
+    monkeypatch.setattr(Store, "transaction_count", lambda self, account: 999)
+    assert run(["account", "forget", "current", "--yes", "--data-dir", str(tmp_path)], capsys) == (
+        0,
+        "",
+        'forgot account "current" and its 0 transactions\n',
+    )
+
+
 def test_ac01_add_an_account(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     data_dir = tmp_path / "data"
     add(data_dir, "current", "GBP", capsys)

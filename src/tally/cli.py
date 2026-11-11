@@ -17,6 +17,7 @@ import sys
 import unicodedata
 from collections.abc import Sequence
 from pathlib import Path
+from typing import TypedDict
 
 from tally import __version__
 from tally.config import Config, ConfigError, data_dir_for, load_config
@@ -25,6 +26,14 @@ from tally.importers.csv_layout import Layout, read
 from tally.store import LockedError, RefusedError, Store
 
 UNREADABLE_LINES_SHOWN = 50
+
+
+# Every parser: no abbreviated options, or every accepted prefix is part of the command line.
+class _Strict(TypedDict):
+    allow_abbrev: bool
+
+
+STRICT: _Strict = {"allow_abbrev": False}
 
 EXIT_OK = 0
 EXIT_REFUSED = 1
@@ -52,7 +61,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="tally",
         description="See where your money goes, from your bank's statement files.",
-        allow_abbrev=False,  # every accepted prefix would be part of the command line
+        **STRICT,
     )
     parser.add_argument("--version", action="version", version=f"tally {__version__}")
     commands = parser.add_subparsers(dest="command", metavar="<command>")
@@ -61,25 +70,21 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--config", metavar="FILE", help="the tally.toml to read")
     common.add_argument("--data-dir", metavar="DIR", help="where the data file lives")
 
-    account = commands.add_parser(
-        "account", allow_abbrev=False, help="add, list and forget accounts"
-    )
+    account = commands.add_parser("account", **STRICT, help="add, list and forget accounts")
     actions = account.add_subparsers(metavar="<action>", required=True)
-    add = actions.add_parser("add", parents=[common], allow_abbrev=False, help="add an account")
+    add = actions.add_parser("add", parents=[common], **STRICT, help="add an account")
     add.add_argument("name", type=account_name)
     add.add_argument(
         "--currency", required=True, type=currency_code, help="three letters, e.g. GBP"
     )
     add.set_defaults(run=account_add)
-    listing = actions.add_parser(
-        "list", parents=[common], allow_abbrev=False, help="list the accounts"
-    )
+    listing = actions.add_parser("list", parents=[common], **STRICT, help="list the accounts")
     listing.add_argument("--format", choices=["table", "json"], default="table")
     listing.set_defaults(run=account_list)
     forget = actions.add_parser(
         "forget",
         parents=[common],
-        allow_abbrev=False,
+        **STRICT,
         help="delete an account and everything imported into it",
     )
     forget.add_argument("name", type=account_name)
@@ -89,7 +94,7 @@ def build_parser() -> argparse.ArgumentParser:
     importing = commands.add_parser(
         "import",
         parents=[common],
-        allow_abbrev=False,
+        **STRICT,
         help="import a statement file into an account",
     )
     importing.add_argument("file", help="a CSV or OFX statement")
@@ -184,7 +189,7 @@ def _import(args: argparse.Namespace, config: Config) -> int:
         layout = Layout.from_config(args.layout, config.layouts[args.layout])
     path = Path(args.file)
     # The path as text the data file and JSON can hold: bytes that are not UTF-8 become U+FFFD.
-    shown = os.fsencode(args.file).decode("utf-8", "replace")
+    shown = os.fsencode(args.file).decode("utf-8", "replace")  # pragma: no mutate (codec case)
     file_kind = kind(path)
     if file_kind == "csv" and layout is None:
         print("--layout is needed for a CSV file", file=sys.stderr)
