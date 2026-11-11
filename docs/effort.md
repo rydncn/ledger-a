@@ -7,3 +7,53 @@
 | 4 | Categorisation: `rules.py` (`load`, `categorise` as the one definition of a category, rules validated before the data file opens, amounts in one exact shape, patterns compiled once with every compile error named), `tally uncategorised` (table, CSV, JSON) and `tally explain ID` (table, JSON), `cli.printable` for every text and message on the terminal (AC26 to AC29, AC38, AC34 and AC35 for both); 2 review findings fixed and 1 ruled, a third point fixed; 986 mutants, 10 survived, 1 killed by a test and 9 ruled, 1 more found by the confirming run (pull request #11) | 1 (plus one review subagent, about 108,000 tokens of its own) | about 258,000 tokens total, about 168,000 added after the first reply (the cloud harness was 90,000); about 60,000 added before the plan; the budget hook warned at 138,000 added, when the review returned; continued to finish the fixes, three mutation runs and the records in one session | 09:50 to about 10:40 UTC, about 50 min with no stall: about 8 min reading, 5 min on the plan and the pull request, 15 min on tests and code, 5 min on the review's fixes (the review took 4 min in the background), 10 min on three mutation runs and their survivors (about 5 min each, in the background), 10 min on records |
 | 5 | Reports: `report.py` (`monthly`, `payees`, Python-integer sums per currency and scale, ADR 0010), `tally report` and `tally payees` (`--month`, `--from`/`--to`, `--top`; table, CSV, JSON), `account list --format csv`, colour on a terminal only (tested on a pty), CSV `\r\n` on every platform (the slice 4 review's F2); AC30 to AC33, AC35 to AC37, AC38 and AC34 for both, AC26's and AC3's report checks; 1 audit finding fixed, 2 review findings fixed and 1 left for the owner; 1,244 mutants, 15 survived, 8 killed by tests or rewrites and 7 ruled; confirming run 1,239, 0 survived (pull request #12) | 1 (plus a review subagent, about 113,000 tokens, and an audit subagent, about 110,000) | about 304,000 tokens total, about 213,000 added after the first reply (the cloud harness was 91,000); the budget hook first warned at about 179,000 added, after the audit returned; continued to finish the fixes, two mutation runs and the records in one session; the whole-codebase review was deferred to the next session | 11:14 to about 11:55 UTC, about 40 min with no stall: about 5 min reading, 5 min on the plan and the pull request, 15 min on tests and code for the three tasks, 5 min on the audit's and the review's fixes (both ran in parallel in the background, 3 and 5 min), 5 min on the survivors (two mutation runs in the background, about 10 and 6 min), 5 min on records |
 | Audit and review 2 | The whole-codebase security audit (the security-audit skill in full, profile `standard`: 38 agents, 22 coverage units, 7 low findings fixed, 2 needing validation, 1 ruled and 1 for the owner) and whole-codebase review 2 (13 findings, 3 must-fix; 9 fixed, 2 decided, 2 ruled or for the owner), their fixes test-first (39 new tests), the handoff's three items, ADR 0011 (amount places, AC32 and AC35 amended), ADR 0012 (a reused FITID reported), the agent-configuration gaps, a fresh-context review of the diff (6 should-fix, fixed), one full mutation run on the changed files (2,045 mutants, 21 survived, all killed or ruled) with the confirming run left to CI, and the records (pull request #13) | 1 (plus 38 audit agents, about 3.9 million tokens between them, a review subagent of about 200,000 and a diff reviewer of about 120,000) | about 530,000 tokens total, about 440,000 added after the first reply (the cloud harness was 90,000); the budget hook warned from about 143,000 added, while the audit's first wave ran, and on every turn after; continued, as the task said not to stop | 13:36 to about 16:50 UTC, about 3 h 15 with no stall: about 10 min reading, 1 h 45 running the audit (its agents in the background, 4 hunter waves, the fixes for the first findings written alongside), 20 min on review 2 (12 min of its own in the background) and its fixes, 15 min on the diff review and its fixes, 30 min on mutation (three runs stopped or cut off: two stopped by hand because the tree had changed under them, one cut off by the tool's 30-minute limit for a backgrounded command; one full run of about 25 min), 15 min on records and the pull request |
+
+## Totals
+
+Worked out from the rows above at the trial's close. Every token figure and most durations in the rows are "about"; the totals are no more exact than their parts and are rounded to the nearest thousand tokens or five minutes. Whole-codebase review 1 and its fixes (pull request #10) have no row: the slice 3 session did them at the owner's request after its row's end, so they are missing from every total here, and the trial log is their record.
+
+### Sessions and context
+
+| Row | Sessions | Subagent sessions (their own tokens) | Peak context, total | Peak added after the first reply | Harness at start |
+| --- | --- | --- | --- | --- | --- |
+| 0 | 1 | 0 named in the row (the trial log names one review subagent, tokens not recorded) | about 365,000 | about 280,000 | 84,000 |
+| 1 | 1 | 1 (about 300,000) | about 348,000 | about 258,000 | 90,000 |
+| 2 | 1 | 1 (about 150,000) | about 370,000 | about 279,000 | 90,000 |
+| 3 | 1, plus a second started at the same time that stopped itself before pushing | 1 (about 153,000) | about 400,000 | about 309,000 | 92,000 |
+| 4 | 1 | 1 (about 108,000) | about 258,000 | about 168,000 | 90,000 |
+| 5 | 1 | 2 (about 223,000) | about 304,000 | about 213,000 | 91,000 |
+| Audit and review 2 | 1 | 40 (about 4.2 million: 38 audit agents 3.9 million, a reviewer 200,000, a diff reviewer 120,000) | about 530,000 | about 440,000 | 90,000 |
+| **Total** | **7** (8 started) | **46 named in the rows** (47 with slice 0's reviewer), **about 5.2 million tokens** | **about 2,575,000** summed over sessions; mean about 368,000 | **about 1,947,000** summed; mean about 278,000; least 168,000 (slice 4), most 440,000 (the close) | 627,000 |
+
+The "total" column sums each session's peak, which is the size of the context window at its widest, not the tokens billed: every turn re-reads the window, so the billed figure is many times larger and was not recorded.
+
+### Wall clock and working time
+
+| Row | Wall clock | Stall (usage limit) | Working time | Reading | Plan, tests and code | Reviews, audit, mutation and their fixes | Records and pull requests | Not itemised in the row |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 0 | 38 min | 0 | 38 min | 10 | 0 | 0 | 10 | 18 (design, ADRs, gate breaks, the review's fixes) |
+| 1 | about 2 h 15 | about 1 h 15 | about 1 h | 10 | 25 | 15 | 10 | 0 |
+| 2 | about 1 h 55 | 0 | about 1 h 55 | 10 | 35 | 15 | 20 | 35 (15 of it waiting on CI and a confirming run) |
+| 3 | about 1 h 30 | 0 | about 1 h 30 | 10 | 30 | 35 | 15 | 0 |
+| 4 | about 50 min | 0 | about 50 min | 8 | 20 | 15 | 10 | 0 (the parts sum to 53) |
+| 5 | about 40 min | 0 | about 40 min | 5 | 20 | 10 | 5 | 0 |
+| Audit and review 2 | about 3 h 15 | 0 | about 3 h 15 | 10 | 0 (the fixes were written alongside the audit) | 170 | 15 | 0 |
+| **Total** | **about 11 h 05** (663 min) | **about 1 h 15** (75 min, one stall, slice 1) | **about 9 h 50** (588 min) | **about 1 h** (63 min, 11%) | **about 2 h 10** (130 min, 22%) | **about 4 h 20** (260 min, 44%) | **about 1 h 25** (85 min, 14%) | **about 55 min** (53 min, 9%) |
+
+Minutes in the activity columns are as the rows give them; the activity columns sum to 591 against 588 because slice 4's parts are "about". "Plan, tests and code" includes slice 2's plan (its row gives one figure for plan, tests and code) and slices 4's and 5's "plan and the pull request" lines. The review, audit and mutation column is wall clock of the parent session while they ran or their fixes were written; most of the runs and the reviews themselves ran in the background, so the subagents' and runs' own time is longer than this column and is in the rows.
+
+### Rule 17: the 100,000-token budget
+
+Every one of the seven sessions passed the budget of 100,000 tokens added after the first reply; none handed off at the warning, and the rows record each decision to continue.
+
+| Row | Added at peak | Over the budget by | Where the warning came |
+| --- | --- | --- | --- |
+| 0 | about 280,000 | 2.8 times | No warning: the budget hook did not exist until this session wrote `.claude/settings.json` |
+| 1 | about 258,000 | 2.6 times | At 147,000 added, after the review returned; the fixes, the re-review, six mutation runs and the records were still to do |
+| 2 | about 279,000 | 2.8 times | At 208,000 added, after the review was dispatched |
+| 3 | about 309,000 | 3.1 times | At 180,000 added, after the slice's code and before its review; 107,000 had been added before the first test (reading and reviewing the draft plan) |
+| 4 | about 168,000 | 1.7 times | At 138,000 added, when the review returned; about 60,000 had been added before the plan |
+| 5 | about 213,000 | 2.1 times | At about 179,000 added, after the audit returned |
+| Audit and review 2 | about 440,000 | 4.4 times | From about 143,000 added, while the audit's first wave ran, and on every turn after; the task said not to stop |
+
+In no session did the warning come at 100,000: it came between 138,000 and 208,000 added, each time at the end of a long turn (a review or an audit returning), because the hook measures at a stop and a turn that waits on subagents is long. Reading alone (the handoff, the design, the brief, the ADRs and the code) cost 60,000 to 107,000 tokens before any work in slices 3 and 4, where it was measured. The smallest slice (slice 4: two tasks, a review with three findings, three mutation runs) added 168,000. The playbook feedback's entries on rule 17 (sessions 1 to 7) say what to make of it.
