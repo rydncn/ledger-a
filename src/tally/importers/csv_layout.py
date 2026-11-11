@@ -13,6 +13,7 @@ from __future__ import annotations
 import codecs
 import csv
 import logging
+import re
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from datetime import datetime
@@ -30,6 +31,7 @@ MAX_FIELD = 1_048_576
 # observable only as memory.
 MAX_LINE = 2 * MAX_FIELD  # pragma: no mutate
 TOO_LONG = "field longer than 1 MB"
+_COMPACT = re.compile(r"(?:%[A-Za-z])+")  # a date format with nothing between its fields
 csv.field_size_limit(MAX_FIELD)
 log = logging.getLogger(__name__)
 
@@ -206,10 +208,16 @@ class _Rows:
         if len(cells) != self.width:
             return Unreadable(line, f"expected {self.width} columns, found {len(cells)}")
         date_format = self.layout.date_format
+        text = cells[self.at["date"]].strip()
         try:
-            date = datetime.strptime(cells[self.at["date"]].strip(), date_format).date().isoformat()
+            day = datetime.strptime(text, date_format)
         except ValueError:
             return Unreadable(line, f"date does not match {date_format}")
+        # With no separator, strptime guesses the width ("2026111" is 1 November): such a
+        # format reads only what it writes.
+        if _COMPACT.fullmatch(date_format) and day.strftime(date_format) != text:
+            return Unreadable(line, f"date does not match {date_format}")
+        date = day.date().isoformat()
         try:
             if "amount" in self.at:
                 minor = to_minor(self._amount(cells[self.at["amount"]]), self.scale)

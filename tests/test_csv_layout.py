@@ -484,3 +484,13 @@ def test_ac40_the_line_guard_is_exact_and_leaves_the_next_row_alone(
         "THIRD",
         "LAST WITHOUT A LINE ENDING",
     ]
+
+
+def test_ac13_a_compact_date_format_reads_only_its_own_width(tmp_path: Path) -> None:
+    # strptime reads "2026111" under %Y%m%d as 1 November: a guess, not a date.
+    layout = Layout.from_config("compact", {**BANK, "date_format": "%Y%m%d"})
+    path = bank_file(tmp_path, "2026111,SHORT,1.00,,", "20261101,WHOLE,1.00,,")
+    short, whole = read(path, layout, 2)
+    assert short == Unreadable(2, "date does not match %Y%m%d")
+    assert isinstance(whole, Transaction)
+    assert whole.date == "2026-11-01"
