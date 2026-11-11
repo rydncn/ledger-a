@@ -708,13 +708,14 @@ def test_ac38_an_unreadable_rows_reason_shows_controls_from_the_configuration(
     place = Place(tmp_path, capsys)
     hostile = f"%d/%m/%Y{ESC}]0;x{BEL}"
     place.config.write_text(
-        CONFIG.replace('date_format = "%d/%m/%Y"', f'date_format = "%d/%m/%Y\\u001b]0;x\\u0007"'),
+        CONFIG.replace('date_format = "%d/%m/%Y"', 'date_format = "%d/%m/%Y\\u001b]0;x\\u0007"'),
         encoding="utf-8",
     )
     code, _, err = place.import_(bank_file(tmp_path, "not a date,SHOP,1.00,,"))
     assert code == 0
     assert "line 2: date does not match %d/%m/%Y␛]0;x␇\n" in err
-    assert ESC not in err and BEL not in err
+    assert ESC not in err
+    assert BEL not in err
     assert hostile not in err
 
 
