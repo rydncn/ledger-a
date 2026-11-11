@@ -152,3 +152,86 @@ A subagent in a worktree of `2a803eb` without the plans, the handoff or the tria
 - Fresh-context review of this pull request's diff (subagent, same brief, the diff without the session's reasoning): 6 should-fix, 0 must-fix, each probed. Fixed: F1 the `pre-push` hook refuses `main`/`master` whatever the command (an `origin HEAD` push matched no ask rule); F2 the GitHub tool that creates a pull request asks first; F3 `O_EXCL` made two first opens at once fail; F4 the compact-date check refused `01NOV2026` under `%d%b%Y`; F5 a stored name with a line separator could no longer be forgotten; F6 the directory fix chmodded a pre-existing directory, perhaps the user's home, so a directory others can write is now refused and left alone. Ruled: the tool that edits a pull request's description does not ask (this session and the owner's instruction use it to keep the description current and mark it ready), and `CLAUDE.md` says so.
 - Process: the Phase 5 verifier of the data-directory record found that the first fix (tighten the directory) still leaked a `-wal` planted before it; the second fix checks every side file. The diff review then found the second fix's chmod too wide (F6). Three passes for one finding.
 - Mutation testing, on the changed files after the reviews' fixes: 2,045 mutants, 21 survived. One line deleted (the `(` check, redundant once only `Sc` is a symbol); one refactor (a reused FITID becomes an unreadable row before the insert, so the existing cap tests reach it); two tests (the exact messages of `existing_name` and of a NUL data directory); ten ruled with `pragma: no mutate` and the reason (the broken-pipe devnull lines, which only a real process shows; `O_NOFOLLOW` behind the `lstat` check; the case of `PRAGMA secure_delete`; `taken`'s start value). The confirming run was cut off by the tool's time limit; CI's mutation job on the final commit is the confirming run. CI's mutation job on `c30cd37`: 2,019 mutants, 1 survived (`O_WRONLY & nofollow`, which creates the file read-only, as good for a file only created and closed); ruled on a line of its own.
+
+## Totals
+
+Counted from the lines above at the trial's close. A line that lists several defects is counted as the defects it names; a line that records behaviour, a probe or a decision with no defect counts 0. Equivalent mutants ruled with `pragma: no mutate` are not defects and are counted apart. Outcomes are the final state at the close: an item one layer left for the owner and a later layer fixed or decided is counted as fixed or decided, with the note saying where. The ambiguous lines and which way they were counted are listed after the tables.
+
+### By layer
+
+| Layer | Findings | Severity | Fixed | Ruled or decided | For the owner |
+| --- | --- | --- | --- | --- | --- |
+| Tests seen failing (test-first, and probes while writing a test) | 7 in the product or the design: `(12.50` as a symbol, the leaked connection, the sample not being CSV, the decode error's line number, the `--verbose` handler left on the root logger, `--layout`'s help wrapping, the `0400` probe placing AC42's error (slices 1 and 2). Plus 27 defects in the tests' own files, found by their first run (2, 16, 2, 6 and 1 in slices 2 to 5 and #13) | unranked | 7 + 27 | 0 | 0 |
+| Hooks (after-edit, stop, pre-push) | 4: an escape that arrived as a raw character in a Write, twice (slices 4 and 5, ruff's PLE2502); two shell edits caught by the `pre-push` lint in #13 (an empty f-string, raw dashes). 0 defects in the product; every other report was a lint rule applied straight after an edit | unranked | 4 | 0 | 0 |
+| Rule and import checks | 2: `no-float-for-money` on the word "float" in a comment (a false positive, reworded); the import allowlist missing `io` and `heapq` when slice 5 used them | unranked | 2 | 0 | 0 |
+| CI | 0 of its own: every push's quick checks were green, and the test and mutation jobs ran after the local ones. Its one find, a surviving mutant on #13's `c30cd37` after the local confirming run was cut off, is counted under mutation testing | | | | |
+| Gate breaks (gates broken on purpose and seen to fail; not defects) | 24: slice 0's 10 local breaks (every hook, check and lockfile gate once; the mutation line is counted under mutation below) and its 11 CI jobs each red for its own reason; `check_imports.py` twice in #10 (counted once); the raw-control-character check and `pre-push`'s refusal of `main` in #13 | | | | |
+| Fresh-context review, slice 0 | 10 | 2 must-fix, 8 should-fix | 10 | 0 | 0 |
+| Fresh-context review, slice 1, and the re-review of its fixes | 7 (6 + 1) | 2 must-fix, 5 should-fix | 7 | 0 | 0 |
+| Fresh-context review, slice 2 | 4 | 4 should-fix | 4 | 0 | 0 |
+| Fresh-context review, slice 3 | 8 | 4 must-fix, 4 should-fix | 8 | 0 | 0 |
+| Fresh-context review, slice 4 | 5 | 2 should-fix, 3 for a person | 3 (the Windows `\r\r\n` was ruled here and fixed in slice 5) | 1 (currency places, by ADR 0011 in #13) | 1 (`uncategorised` holds every row; R11 ruled the same) |
+| Fresh-context review, slice 5 | 3 | 3 should-fix | 2 (a missing test, ADR 0004 outgrown) | 1 (currency places, ADR 0011) | 0 |
+| Fresh-context review of #10's fixes | 5 | 1 must-fix, 4 should-fix | 5 | 0 (two rulings on scope, no finding dropped) | 0 |
+| Fresh-context review of #13's diff | 6 | 6 should-fix | 6 (F2 in part: the description-editing tool does not ask, ruled) | 0 | 0 |
+| **Slice and diff reviews together** | **48** | **9 must-fix, 36 should-fix, 3 for a person** | **45** | **2** | **1** |
+| Whole-codebase review 1 (after slice 3) | 12 | 2 must-fix, 7 should-fix, 3 agent configuration | 11 (8 in #10; the 3 configuration findings in #13) | 1 did not reproduce (Arabic-Indic digits in CSV dates; a test pins it) | 0 |
+| Whole-codebase review 2 (the close) | 13 | 3 must-fix, 10 should-fix (2 of them for a person) | 9, and R12 in part | 1 decided (R9, ADR 0011) | 2 (R11 `uncategorised`, R13 empty data file), and R12's marketplace pin |
+| Security audit, slice 5 | 4: the table padded to a 1 MB cell; argparse echoing argv and the broken-pipe message (older than the slice, passed to the whole-codebase review); JPY and BHD against AC32 | 1 low; 2 raised; 1 for a person | 3 (1 here, 2 as #13's A5 and R6) | 1 (ADR 0011) | 0 |
+| Security audit, whole codebase | 22: A1 to A9, 6 hardening items fixed, 7 hardening notes left in the report | 7 low, 2 need validation, 13 hardening | 14 (A1 to A7, 6 hardening, and `secure_delete` by R5) | 1 (A8: the `pip-audit*` rule removed) | 7 (A9 Windows; the marketplace pin; 5 hardening notes: `ACCTID`, `seen`, a digit as decimal, the ignore marker, the mutation group's unhashed build requirements) |
+| Mutation testing (survivors that were not equivalent) | 54: 2 defects in the product (`-12.50-` accepted, slice 1; a `<>` tag read, slice 3), 37 test gaps, 11 dead or redundant lines removed or simplified, 4 defects in the tooling (incremental stats, the samples path, no local `origin/main`, the formatter moving a pragma). Equivalents ruled with `pragma: no mutate` and a reason: 41 | unranked | 54 | 41 pragmas | 0 |
+| Process (and the session's self-check) | 10: two draft pull requests merged early (#5, #7); 4 wrong choices in a plan drafted at the end of a budget; two sessions on one branch; the audit and the review run in parallel against `CLAUDE.md`'s order; three passes for one finding (A2); a `STMTTRN` after `</OFX>` found in the session's own rulings | unranked | 6 (the plan's 4, the self-check, A2's third pass) | 0 | 4 for the owner or the playbook (branch protection or a "not ready" check for the two merges; a claim step for sessions; the ordering rule) |
+
+Pull requests #9 and #11 were merged by the agent at the owner's explicit request, once CI was green: recorded under process, not counted as defects. Two surviving-mutant lines (slice 0's help text, slice 2's third run) and every "0 defects" and "not yet due" line count 0.
+
+### By severity
+
+| Severity | Count | Where from |
+| --- | --- | --- |
+| Must-fix | 14 | 9 slice and diff reviews, 2 review 1, 3 review 2 |
+| Should-fix | 53 | 36 slice and diff reviews, 7 review 1, 10 review 2 |
+| Agent configuration | 3 | review 1 |
+| For a person (a decision, not a defect) | 4 | 3 slice 4's review, 1 slice 5's audit |
+| Low (audit) | 8 | 1 slice 5, 7 whole codebase |
+| Needs validation (audit) | 2 | whole codebase |
+| Hardening (audit) | 13 | whole codebase |
+| Raised to another layer (audit) | 2 | slice 5 |
+| Unranked: tests, hooks, checks, mutation, process | 34 + 4 + 2 + 54 + 10 = 104 | as the layer table |
+| **All findings** | **203** | 48 + 12 + 13 + 4 + 22 + 104 |
+
+### By outcome
+
+| Outcome | Count |
+| --- | --- |
+| Fixed, with a test seen to fail first where a test could show it | 183 (34 tests, 4 hooks, 2 checks, 45 reviews, 11 review 1, 10 review 2 counting R12's part fix, 3 slice 5 audit, 14 whole-codebase audit, 54 mutation, 6 process) |
+| Ruled or decided | 6 (ADR 0011 for the currency places raised four times, counted at each layer that raised it: 2 reviews, 1 audit, R9; A8's rule removed; 1 did not reproduce) |
+| Left for the owner | 14 (reviews 1, review 2's 2 and the marketplace pin, the whole-codebase audit's 7, process 4; some are one item raised by two layers, see `docs/handoff.md` for the deduplicated list) |
+| Equivalent mutants ruled by pragma (not in the 203) | 41 |
+| Gate breaks (not in the 203) | 24 |
+
+### Which layer found what no other layer did
+
+Each review and audit section above names its overlaps; this reads them together.
+
+- **Tests written first** found what only running the code shows: `(12.50` parsed as a positive amount, the connection leaked on a busy timeout, the logging handler that would have outlived its test, and that the brief's sample was not CSV at line 4. The slice 0 review had the sample and the design and did not run it; no review found these.
+- **Hooks** found one thing nothing else did, three times: an escape written in a tool call arriving as the raw character (ruff in the after-edit hook twice, ruff in `pre-push` once). The rule check written for raw characters covers C0 only and would have caught none of the three.
+- **Rule and import checks** found no defect in the product, by design: they held the boundaries (no float, no network) and the one true positive was the allowlist growing with the code. Their value is in the gate breaks, where each was seen to fail on a planted fault, and in the import check's own defect, which the review of #10's fixes found (top-level names only).
+- **CI** found nothing before a local layer did, except the one mutant surviving on #13 after the local confirming run was cut off. Its 11 jobs were each seen red once on the proof branch.
+- **Slice reviews** found the defects that need an outside reader of one slice: `Decimal` arithmetic rounding at 28 digits in the module called exact (slice 1), the WAL race SQLite answers without the busy handler (the re-review), the sign of `(3.40)` in a money-out column and a flood cap claimed but not written (slice 0), a `delimiter` of a quote crashing under the write lock (slice 2), UTF-7 and the escape codecs decoding to surrogates, quadratic `int()`, the ignored `CURRENCY` aggregate and lower-case tags (slice 3, three of the four from parsers the brief named), a `data_dir` carrying an escape to the terminal through `OSError` (slice 4), the import check reading only top-level names (the review of #10's fixes), and the directory fix chmodding a pre-existing directory (the review of #13's diff). Neither tests nor mutation nor either whole-codebase layer found any of these.
+- **Whole-codebase review 1** found what no slice review could, because it read the slices together: account ids reused across `forget` and `add`, so a `forget` read before the lock deleted another account's transactions (slice 1's schema, slice 2's import, no one slice's bug); the codec and `[0-9]` lessons applied in OFX but not CSV; an ADR the code had outgrown.
+- **Whole-codebase review 2** found 8 of its 13 that the audit did not, among them its only must-fix the audit missed: a typographic minus or dash dropped as a currency symbol, so `−950.00` read as +950.00; also names with U+2028, compact dates reading `2026111`, a rule named `uncategorised`, and the empty data file a read-only command creates (R13).
+- **The security audits** found what no review question asked: the FITID reused for a different transaction (A1), a data directory another user can write and the `-wal` planted in it (A2, and Phase 5 found the first fix still leaked), the `pip-audit*` allow rule running a build backend (A8), and privacy on Windows resting on an ACL (A9); three of these came from a unit a critic asked for that nobody had seeded. Slice 5's audit found the padding flood with one hostile cell where the review's flood probe used many ordinary rows. The audit found 5 of review 2's 13 (R2, R3, R4, R5, R7) and review 2 found 5 of the audit's 9 records.
+- **Mutation testing** found 2 product defects nothing else did (`-12.50-` accepted; a `<>` tag read where SGML and XML disagree), 37 test gaps, the pattern of the configuration's `data_dir` never exercised through `main` (surviving in four slices running), 11 dead or redundant lines, and the lie in its own incremental stats. It also ruled 41 equivalents, each with its reason in the code.
+- **Process and the self-check** found the defects in the trial's own method: two early merges, two sessions on one branch, a drafted plan with four wrong choices (each shown wrong by a one-line probe), the ordering of audit and review, and a `STMTTRN` after `</OFX>` that the session's own rulings had claimed was caught. The last is the one product defect found by the builder re-reading their own claims.
+
+### Ambiguous lines and how they were counted
+
+- Slice 0's "Gate break, mutation testing (not planted)" is counted as 1 mutation finding (a help test asserting by substring), not a gate break.
+- Slice 2's lines on the `csv` module's field limit and the unterminated quote record behaviour, not defects: 0. The `0400` probe before any code is counted as 1 design finding under tests.
+- Slice 2's and 3's after-edit hook lines that report lint rules (import order, branch limits, `strict=`) count 0: a lint rule applied is the hook working, not a defect found. The hook's noise on intermediate states is in the playbook feedback, not counted.
+- Slice 3's draft plan line is counted as 4 process findings (the four wrong choices), not 1; the nine decisions added count 0.
+- Slice 1's first mutation run lists nine groups of survivors: `-12.50-` accepted is counted as a product defect, dead code after the fraction check as a dead line, the other seven as test gaps. Later runs are counted the same way by the items they list, not by the number of mutants.
+- Slice 4's review raised two items "for a person" beside its one fixed "for a person" point; all three are counted as findings so the layer's total is 5, where `docs/effort.md`'s row says "2 fixed and 1 ruled, a third point fixed".
+- Review 2's R5 (`secure_delete`) is counted once, as fixed, though it was also a decision; `docs/effort.md`'s row counts it under "decided" as well.
+- The currency-places question is counted at each of the four layers that raised it (slice 4's review, slice 5's audit and review, R9), each as decided by ADR 0011. The deduplicated owner's list is in `docs/handoff.md`.
+- The whole-codebase audit's hardening line "each escaped as a traceback" is counted as 4 (the four inputs it names), plus account names through `printable` and the mutation script's `--end-of-options`, 6 fixed.
