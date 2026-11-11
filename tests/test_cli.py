@@ -125,7 +125,7 @@ usage: tally import [-h] [--config FILE] [--data-dir DIR] --account ACCOUNT
                     file
 
 positional arguments:
-  file                  a CSV statement (OFX arrives in slice 3)
+  file                  a CSV or OFX statement
 
 options:
   -h, --help            show this help message and exit

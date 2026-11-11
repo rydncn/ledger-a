@@ -76,3 +76,7 @@ Decisions and the options rejected for them are in `docs/decisions/`. Read the r
 - A `0400` data file in WAL mode still accepts `BEGIN IMMEDIATE`; `SQLITE_READONLY` arrives at the first `INSERT`, inside the transaction. And the cloud session is root, for whom the file is writable regardless: a permission test skips under root and is observed as another user (`runuser -u nobody`) or in CI.
 - A text decoder reads ahead of the lines, so a `UnicodeDecodeError` carries no trustworthy line number; say what the file is not, without one.
 - `logging.basicConfig` outlives the command in an in-process test suite: attach a handler for the run and remove it after.
+- "It writes ASCII as ASCII" is not an encoding check: UTF-7, `unicode_escape` and about 80 other codecs pass it and decode to lone surrogates, which SQLite refuses with a traceback. Allow the few codecs a format uses by name. Found by the slice 3 review.
+- `int()` of a huge `Decimal` costs its length squared (1.6 s for 300,000 digits), and an amount's length is the file's choice: bound the digits before converting, as `to_minor` does.
+- A probe beats a guess about a library: `html.unescape` follows HTML5 (`&ampfoo` is `&foo`), `strptime("2026111", "%Y%m%d")` is 1 November, and `\d` matches Arabic-Indic digits that `int` and `Decimal` accept. One line in the interpreter before choosing the function.
+- A fresh cloud checkout has no local `origin/main`: run `git fetch origin main` before anything diffs against it (the mutation script does).

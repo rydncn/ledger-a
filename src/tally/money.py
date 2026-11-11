@@ -107,6 +107,11 @@ def to_minor(amount: Decimal, scale: int) -> int:
     shifted = Decimal((sign, digits, exponent + scale))  # exact, unlike scaleb
     if shifted != shifted.to_integral_value():
         raise AmountError(f"amount has more than {scale} decimal places")
+    # More than 19 whole digits is past SQLite's INTEGER, and int() of a huge Decimal costs
+    # its length squared, so it is refused before converting. no mutate: at 20 or 21 the
+    # range check below refuses the same amounts, and only the cost differs.
+    if len(digits) + exponent + scale > 19:  # pragma: no mutate
+        raise AmountError("amount is too large to store")
     minor = int(shifted)
     if not -(2**63) <= minor < 2**63:  # SQLite's INTEGER
         raise AmountError("amount is too large to store")

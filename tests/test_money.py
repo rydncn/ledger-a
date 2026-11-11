@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from decimal import Decimal
 
 import pytest
@@ -106,3 +107,16 @@ def test_ac44_thirty_digit_amounts_are_exact_and_the_data_file_bound_is_refused(
         to_minor(Decimal("-92233720368547758.09"), 2)
     with pytest.raises(AmountError, match=r"^amount is not a number$"):
         to_minor(Decimal("NaN"), 2)
+
+
+def test_ac44_a_huge_amount_is_refused_before_it_is_converted() -> None:
+    """Turning a Decimal of n digits into an int costs about n squared: 1.6 s for 300,000."""
+    started = time.monotonic()
+    for digits in (300_000, 20):
+        with pytest.raises(AmountError, match=r"^amount is too large to store$"):
+            to_minor(Decimal("9" * digits), 2)
+        with pytest.raises(AmountError, match=r"^amount is too large to store$"):
+            to_minor(Decimal("-" + "9" * digits + ".5"), 1)
+    assert time.monotonic() - started < 0.5
+    assert to_minor(Decimal("1." + "0" * 300_000), 2) == 100
+    assert to_minor(Decimal("0" * 300_000 + "1"), 2) == 100
