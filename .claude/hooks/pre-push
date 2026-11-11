@@ -1,6 +1,6 @@
 #!/bin/sh
-# Git pre-push hook for a uv-managed Python project: format, lint and type
-# check before anything leaves the machine, whichever agent or person pushes.
+# Git pre-push hook for a uv-managed Python project: format, lint, type check
+# and the project's rule checks before anything leaves the machine, whichever agent or person pushes.
 # The Claude Code hooks cover Claude's own loop; this covers everyone else.
 #
 # Installed by scripts/setup-dev.sh (git config core.hooksPath .claude/hooks).
@@ -22,3 +22,6 @@ run() {
 run uv run --no-build ruff format --check .
 run uv run --no-build ruff check .
 run uv run --no-build mypy
+# The project's rule checks and import allowlist, where it has them (CI runs them too).
+if [ -f scripts/rules.json ]; then run node scripts/check-rules.js scripts/rules.json; fi
+if [ -f scripts/check_imports.py ]; then run uv run --no-build python scripts/check_imports.py; fi
