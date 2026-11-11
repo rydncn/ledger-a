@@ -50,12 +50,12 @@ Each task: the test first, seen to fail for the right reason, then the code, the
     - Ruled, not fixed: `csv.writer(sys.stdout)` would write `\r\r\n` on Windows. Windows is outside the test run and slice 5's export shares the writer; the handoff names the fix to decide there.
     - For the owner: amounts in a currency without two decimal places against AC35's "two decimals"; `uncategorised` holding every row before printing.
   - **Mutation testing, on the tree after the review's fixes:** 986 mutants, 10 survived, all in `cli.py`. One was a gap: `explain` with the store opened without the configuration survived because no test took `data_dir` from `tally.toml`; `test_the_data_directory_comes_from_the_configuration_too` now does, for both commands. Eight were the two commands' `--format` defaults (`None`, absent, `XXtableXX` and its case), equivalent because the table is the branch for anything not CSV or JSON, ruled with `pragma: no mutate` and that reason. The last was the id's 19-digit bound as 20, equivalent because 20 digits are always at least 2^63; ruled.
-  - **The confirming run:** 976 mutants, 1 survived: the id bound again, because the formatter had split the condition and left the pragma on the closing bracket. The bound now has a line of its own with the pragma. A third run on the final tree is in the pull request.
+  - **The confirming run:** 976 mutants, 1 survived: the id bound again, because the formatter had split the condition and left the pragma on the closing bracket. The bound now has a line of its own with the pragma. The third run: 974 mutants, 0 survived. CI's mutation job reruns the whole set on the final commit.
 
 ## Done when
 
 - [x] Every criterion above has a `test_acNN_` test seen to fail before its code and pass after
-- [ ] The five checks pass locally and in CI; mutation testing has no survivors, or each is ruled on beside the code
+- [x] The five checks pass locally and in CI; mutation testing has no survivors, or each is ruled on beside the code
 - [x] The fresh-context review of the slice has run with the four questions answered by name; findings fixed test-first or ruled on
 - [x] `docs/effort.md`, `docs/trial-log.md`, `docs/playbook-feedback.md` have this slice's rows; `docs/handoff.md` says where slice 5 starts
 - [ ] The pull request is out of draft with CI green on its final commit
