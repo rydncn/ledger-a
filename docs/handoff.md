@@ -5,7 +5,7 @@ Where the work is, for the next session. The work, not the machine: tools come f
 ## Where we are
 
 - **Slices 0 to 3** merged: foundation (#1), accounts and the data file (#6), CSV import (#7, #8), OFX import (#9); the whole-codebase review's fixes (#10).
-- **Slice 4 (categorisation)** is pull request [#11](https://github.com/rydncn/ledger-a/pull/11) on `slice-4-categorisation`: `rules.py` (`load`, `categorise(entry, rules) -> Match | NoMatch`), `tally uncategorised` and `tally explain ID`, `cli.printable` for AC38, `Store.entries()` and `Store.entry(id)`. The plan is `docs/plans/004-categorisation.md`; the review, its rulings and the mutation results are in #11's description. **The owner merges #11 before slice 5 starts** (ADR 0007).
+- **Slice 4 (categorisation)** is pull request [#11](https://github.com/rydncn/ledger-a/pull/11) on `slice-4-categorisation`: `rules.py` (`load`, `categorise(entry, rules) -> Match | NoMatch`), `tally uncategorised` and `tally explain ID`, `cli.printable` for AC38, `Store.entries()` and `Store.entry(id)`. The plan is `docs/plans/004-categorisation.md`; the review, its rulings and the mutation results are in #11's description. #11 is merged: the agent merged it at the owner's explicit request once every CI job was green (ADR 0007 has the owner merge; this was the owner's delegation).
 - **Then: slice 5**, reports: `tally report`, `tally payees`, CSV and JSON export, colour; AC30 to AC33, AC35 to AC37, and the `report` checks AC26 and AC3 have waited for.
 
 ## How a slice goes
