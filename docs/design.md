@@ -276,7 +276,7 @@ Each becomes a test named `test_acNN_...`. "Refused" always means: a message on 
 #### AC32. CSV export never runs as a formula
 - **Given** descriptions `=HYPERLINK(...)`, `+1`, `-1`, `@SUM`, one starting with a tab and one with a carriage return
 - **When** `tally report --month 2026-10 --format csv` and `tally uncategorised --format csv`
-- **Then** each such text cell is prefixed with `'`; amount cells match `^-?[0-9]+\.[0-9]{2}$` and are not prefixed; the output parses back with the `csv` module to the same rows; line endings are `\r\n`
+- **Then** each such text cell is prefixed with `'`; amount cells have their currency's own decimal places, matching `^-?[0-9]+$` for a currency with none and `^-?[0-9]+\.[0-9]{n}$` for one with `n` (ADR 0011), and are not prefixed; the output parses back with the `csv` module to the same rows; line endings are `\r\n`
 
 #### AC33. Colour never carries meaning and turns off
 - **Given** a report with negative totals
@@ -291,7 +291,7 @@ Each becomes a test named `test_acNN_...`. "Refused" always means: a message on 
 #### AC35. Every report has a plain, machine-readable form
 - **Given** `report`, `payees`, `uncategorised`, `explain`, `account list`, `import`
 - **When** run with `--format json`, and with `--format csv` for the tabular ones
-- **Then** the JSON has the documented field names and the CSV the documented headers, both the same rows as the table; amounts are strings with two decimals (never JSON numbers)
+- **Then** the JSON has the documented field names and the CSV the documented headers, both the same rows as the table; amounts are strings with their currency's own decimal places, `1200` for JPY, `1.234` for BHD, `-4.20` for GBP (never JSON numbers; ADR 0011)
 
 #### AC36. Nothing converts between currencies
 - **Given** a GBP account and an EUR account with transactions in the same month
