@@ -46,6 +46,9 @@ _MONTH = re.compile(r"[0-9]{4}-(?:0[1-9]|1[0-2])")
 _TOP = re.compile(r"[1-9][0-9]{0,2}|1000")
 REPORT_FIELDS = ("month", "currency", "category", "income", "spending", "net")
 PAYEE_FIELDS = ("currency", "description", "total", "count")
+# The only escape sequences Tally writes: red, and back to normal (AC33).
+_RED = f"{chr(0x1B)}[31m"
+_RESET = f"{chr(0x1B)}[0m"
 
 
 # Every parser: no abbreviated options, or every accepted prefix is part of the command line.
@@ -366,12 +369,32 @@ def _csv_stdout() -> TextIO:
     return sys.stdout
 
 
-def _columns(header: Sequence[str], rows: Sequence[Sequence[str]]) -> list[str]:
-    """Lines with the first column left-aligned, the rest right-aligned, two spaces apart."""
-    lines = [header, *rows]
+def _colour() -> bool:
+    """Colour only on a terminal, and never when NO_COLOR is set to anything (AC33)."""
+    return sys.stdout.isatty() and "NO_COLOR" not in os.environ
+
+
+def _right(text: str, width: int, *, colour: bool) -> str:
+    """Right-aligned; a negative amount red on a terminal, its ``-`` there either way."""
+    shown = f"{_RED}{text}{_RESET}" if colour and text.startswith("-") else text
+    return " " * (width - len(text)) + shown  # padded by the text, so colour moves nothing
+
+
+def _section(title: str, header: Sequence[str], rows: Sequence[Sequence[str]]) -> list[str]:
+    """A title, then lines with the first column left-aligned and the rest right-aligned.
+
+    Each cell is made printable before it is measured: a replacement is one character.
+    """
+    colour = _colour()
+    lines = [[printable(cell) for cell in line] for line in [header, *rows]]
     first, *rest = [max(len(line[i]) for line in lines) for i in range(len(header))]
-    return [
-        "  ".join([line[0].ljust(first), *map(str.rjust, line[1:], rest, strict=True)])
+    return [printable(title)] + [
+        "  ".join(
+            [
+                line[0].ljust(first),
+                *(_right(c, w, colour=colour) for c, w in zip(line[1:], rest, strict=True)),
+            ]
+        )
         for line in lines
     ]
 
@@ -390,8 +413,8 @@ def _period(args: argparse.Namespace) -> tuple[str, str]:
 
 
 def _print_sections(sections: Sequence[Sequence[str]]) -> None:
-    """Each section's lines, a blank line between sections, every line made printable."""
-    print("\n\n".join("\n".join(printable(line) for line in s) for s in sections), end="")
+    """Each section's lines (made printable by ``_section``), a blank line between sections."""
+    print("\n\n".join("\n".join(s) for s in sections), end="")
     if sections:
         print()
 
@@ -434,16 +457,14 @@ def report_run(args: argparse.Namespace, config: Config) -> int:
         )
     else:
         sections = [
-            [
+            _section(
                 f"{when} {currency}",
-                *_columns(
-                    ("category", "income", "spending", "net"),
-                    [
-                        [t.category or "uncategorised", str(t.income), str(t.spending), str(t.net)]
-                        for t in group
-                    ],
-                ),
-            ]
+                ("category", "income", "spending", "net"),
+                [
+                    [t.category or "uncategorised", str(t.income), str(t.spending), str(t.net)]
+                    for t in group
+                ],
+            )
             for (when, currency), group in groupby(totals, key=lambda t: (t.month, t.currency))
         ]
         _print_sections(sections)
@@ -475,13 +496,11 @@ def payees_run(args: argparse.Namespace, config: Config) -> int:
         writer.writerows([_cell(p.currency), _cell(p.description), p.total, p.count] for p in found)
     else:
         sections = [
-            [
+            _section(
                 currency,
-                *_columns(
-                    ("description", "total", "count"),
-                    [[p.description, str(p.total), str(p.count)] for p in group],
-                ),
-            ]
+                ("description", "total", "count"),
+                [[p.description, str(p.total), str(p.count)] for p in group],
+            )
             for currency, group in groupby(found, key=lambda p: p.currency)
         ]
         _print_sections(sections)

@@ -44,7 +44,7 @@ Each task: the test first, seen to fail for the right reason, then the code, the
 
 - **Test:** the in-process pty test and the subprocess pty test: escape sequences on a terminal, none piped or with `NO_COLOR`, `-` on every negative amount, the three identical once escapes are stripped.
 - **Code:** `cli.py`: the colour decision and the red negative amount.
-- **Observed by:**
+- **Observed by:** before the code, the three tests that expect colour on a terminal failed (no escape sequence in the pty's output); the three that expect none (with `NO_COLOR` of `1` and of the empty string, and the CSV and JSON forms on a terminal) passed, as they must before and after. After the code, 2 failed on the test's own mistake: `sys.stdout` was left on the closed pty, so the piped run after it wrote to a closed file; the patch is now scoped with `monkeypatch.context()`. Then all 6 pass, the subprocess one included. Full suite: 573 passed, 1 skipped (AC42 under root), 65 s.
 
 ### Task 4: What the review, the audit and mutation testing found
 
