@@ -54,6 +54,8 @@ def load_config(explicit: str | None) -> Config:
         raise ConfigError(f"{path}: {error.strerror}") from error
     except tomllib.TOMLDecodeError as error:
         raise ConfigError(f"{path}: {error}") from error
+    except UnicodeDecodeError:  # TOML is UTF-8; a file saved as Latin-1 is not
+        raise ConfigError(f"{path}: not UTF-8 text") from None
     except RecursionError:  # tomllib reads nested arrays and tables by recursion
         raise ConfigError(f"{path}: nested too deeply to read") from None
 
@@ -69,17 +71,26 @@ def load_config(explicit: str | None) -> Config:
     rules = table.get("rules", [])
     if not isinstance(rules, list) or not all(isinstance(r, dict) for r in rules):
         raise ConfigError(f"{path}: rules must be an array of tables")
-    return Config(
-        path=path,
-        data_dir=path.parent / Path(data_dir).expanduser() if data_dir else None,
-        layouts=layouts,
-        rules=rules,
-    )
+    return Config(path=path, data_dir=_data_dir(path, data_dir), layouts=layouts, rules=rules)
+
+
+def _data_dir(path: Path, data_dir: str | None) -> Path | None:
+    """``data_dir`` relative to the configuration file, ``~`` expanded."""
+    if not data_dir:
+        return None
+    if "\0" in data_dir:
+        raise ConfigError(f"{path}: data_dir must not hold a NUL character")
+    try:
+        return path.parent / Path(data_dir).expanduser()
+    except RuntimeError:  # ~name for a user who does not exist
+        raise ConfigError(f"{path}: data_dir names a home directory that does not exist") from None
 
 
 def data_dir_for(explicit: str | None, config: Config) -> Path:
     """``--data-dir``, else ``$TALLY_DATA_DIR``, else the config's, else the platform default."""
     given = explicit or os.environ.get("TALLY_DATA_DIR")
+    if given and "\0" in given:
+        raise ConfigError("the data directory's name must not hold a NUL character")
     if given:
         return Path(given)
     if config.data_dir is not None:

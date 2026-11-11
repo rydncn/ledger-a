@@ -120,7 +120,7 @@ class Layout:
             _fail(name, "delimiter cannot be a quote or a line ending")
         try:
             codec = codecs.lookup(layout.encoding).name
-        except LookupError:
+        except LookupError, ValueError:  # ValueError: a NUL in the name
             _fail(name, f'unknown encoding "{layout.encoding}"')
         if codec not in ENCODINGS:  # UTF-16 holds NULs; UTF-7 and the escape codecs, surrogates
             _fail(name, f'encoding "{layout.encoding}" is not supported')
