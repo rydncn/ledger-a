@@ -1,6 +1,6 @@
 # 4. Money is a Decimal in code and integer minor units in the data file
 
-**Status:** accepted · **Date:** 2026-11-10 · **Replaces:** none
+**Status:** accepted; replaced in part by [ADR 0010](0010-report-sums-in-python-integers.md), which sums report totals in Python, not SQL · **Date:** 2026-11-10 · **Replaces:** none
 
 ## Context
 

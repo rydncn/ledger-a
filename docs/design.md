@@ -20,6 +20,7 @@ Out of scope: a graphical interface, bank connections, investments, budgets, mul
 | Configuration, layouts and rules in one TOML file | [0006](decisions/0006-configuration-in-toml.md) |
 | Who merges, and on what evidence, without branch protection | [0007](decisions/0007-who-merges-and-on-what-evidence.md) |
 | What counts as the same transaction | [0008](decisions/0008-what-counts-as-the-same-transaction.md) |
+| Report totals are Python integers over streamed rows | [0010](decisions/0010-report-sums-in-python-integers.md) |
 
 ## Shape
 
@@ -37,7 +38,7 @@ tally.toml (user-written)        statement files (bank-written, hostile)
                     ┌──────────────┴──────────────┐
                     ▼                             ▼
                rules.py                      report.py
-         categorise(txn) → (category, why)   monthly totals, top payees (integer SQL)
+         categorise(txn) → (category, why)   monthly totals, top payees (Python ints)
                     └──────────────┬──────────────┘
                                    ▼
                                 cli.py

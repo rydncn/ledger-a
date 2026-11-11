@@ -300,6 +300,16 @@ def test_ac32_csv_lines_end_crlf_on_a_stream_that_translates_as_windows_does(
     assert b"\r\r" not in written
 
 
+def test_ac32_an_account_name_in_csv_never_runs_as_a_formula(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    place = Place(tmp_path, capsys)
+    for name in ("=HYPERLINK(1)", "+1", "-1", "@A"):
+        assert place.run("account", "add", name, "--currency", "GBP")[0] == 0
+    rows = as_csv(place, "account", "list")
+    assert rows[1:5] == [["'+1", "GBP"], ["'-1", "GBP"], ["'=HYPERLINK(1)", "GBP"], ["'@A", "GBP"]]
+
+
 def test_ac03_the_report_after_forget_has_none_of_the_accounts_rows(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

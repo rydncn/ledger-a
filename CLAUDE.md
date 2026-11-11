@@ -37,7 +37,7 @@ At the start of a session, if the plugin check reports missing plugins, tell the
 - `store.py`: the SQLite data file, created with permissions readable only by the user, opened under one lock so two copies running at once never corrupt it or count a transaction twice. Schema and migrations live here.
 - `importers/`: one module per format (`csv_layout.py`, `ofx.py`), each turning bytes into rows and reasons for the rows it couldn't read. Encoding and line-ending detection happens here, once.
 - `rules.py`: the user's categorisation rules from the TOML configuration, first match wins, with an explanation of why a transaction got its category.
-- `report.py`: monthly totals by category and top payees, from SQL, as plain rows; `cli.py` renders them as a table or CSV.
+- `report.py`: monthly totals by category and top payees, as plain rows summed in Python integers (ADR 0010); `cli.py` renders them as a table, CSV or JSON.
 
 Decisions and the options rejected for them are in `docs/decisions/`. Read the relevant one before proposing a different approach; to change a decision, write a new ADR that replaces it.
 
@@ -84,4 +84,5 @@ Decisions and the options rejected for them are in `docs/decisions/`. Read the r
 - Write an invisible character in source as `chr(0x202E)` or an escape you then check with a grep, never pasted: an escape written in a tool call (Write, Edit or a shell heredoc alike) sometimes arrives as the raw character; check with a grep for the code point after writing. Ruff flags bidi overrides, nothing flags a raw ESC. Found in slice 4.
 - Every message that leaves `main` goes through `cli.printable`, not only the ones the change adds: a `data_dir` holding an escape reached standard error raw through the `OSError` message. And a CSV cell's formula prefix is decided by the original text, before any replacement. Found by the slice 4 review.
 - A `# pragma: no mutate` on a line the formatter splits ends up on the closing bracket and guards nothing: give the guarded expression a line of its own (a named variable) and check with `grep -n "):  # pragma"`. Found by slice 4's confirming mutation run.
+- A table that pads every line to its widest cell multiplies one hostile cell by the number of lines: a 1 MB description made `payees --top 1000` print a gigabyte. Bound the width of statement text before measuring it (the payees table shortens to 60 characters); CSV and JSON keep it whole. Found by the slice 5 security audit.
 - When a lesson is added here, grep the codebase for every place its pattern already appears and fix them in the same change: the codec allowlist and `[0-9]` were learnt in the OFX importer, and the CSV importer and `money.py` kept the flaw until the whole-codebase review.
