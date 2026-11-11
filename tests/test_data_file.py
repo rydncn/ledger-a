@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sqlite3
 import stat
 import subprocess
@@ -77,10 +78,52 @@ def test_ac06_a_data_file_that_is_a_symbolic_link_is_refused(
     elsewhere = tmp_path / "elsewhere"
     (data_dir / "tally.sqlite").symlink_to(elsewhere)  # dangling: the open would create it
     assert main(["account", "list", "--data-dir", str(data_dir)]) == 1
-    assert (
-        capsys.readouterr().err == f"the data file {data_dir / 'tally.sqlite'} is a symbolic link\n"
-    )
+    assert capsys.readouterr().err == f"{data_dir / 'tally.sqlite'} is not a file of your own\n"
     assert not elsewhere.exists()
+
+
+@pytest.mark.parametrize("side", ["tally.sqlite-wal", "tally.sqlite-shm", "tally.sqlite-journal"])
+def test_ac06_a_side_file_planted_while_the_directory_was_open_is_refused(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], side: str
+) -> None:
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    shared.chmod(0o777)
+    planted = shared / side
+    planted.write_bytes(b"")
+    planted.chmod(0o666)
+    keep = tmp_path / "keep"
+    keep.hardlink_to(planted)  # the planter keeps a link, so SQLite's unlink on close is no cure
+    assert main(["account", "add", "current", "--currency", "GBP", "--data-dir", str(shared)]) == 1
+    err = capsys.readouterr().err
+    assert err.endswith(f"{planted} is not a file of your own\n")
+    assert keep.read_bytes() == b""  # nothing was written into it
+
+
+def test_ac06_a_side_file_of_another_user_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(mode=0o700)
+    (data_dir / "tally.sqlite-wal").write_bytes(b"")
+    uid = data_dir.stat().st_uid
+    monkeypatch.setattr("os.lstat", _owned_by(uid + 1, data_dir / "tally.sqlite-wal"))
+    assert main(["account", "list", "--data-dir", str(data_dir)]) == 1
+    assert capsys.readouterr().err == f"{data_dir / 'tally.sqlite-wal'} is not a file of your own\n"
+
+
+def _owned_by(uid: int, target: Path):  # type: ignore[no-untyped-def]
+    real = os.lstat
+
+    def lstat(path, *args, **kwargs):  # type: ignore[no-untyped-def]
+        found = real(path, *args, **kwargs)
+        if Path(path) != target:
+            return found
+        fields = list(found)
+        fields[4] = uid  # st_uid
+        return os.stat_result(fields)
+
+    return lstat
 
 
 def test_the_schema_holds_accounts_imports_and_transactions_once_per_account(

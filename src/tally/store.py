@@ -184,6 +184,9 @@ def _same(connection: sqlite3.Connection, account: Account, row: Transaction) ->
     return found is not None
 
 
+SIDE_FILES = ("-wal", "-shm", "-journal")  # what SQLite opens beside the data file
+
+
 class Store:
     """An open data file. ``tightened`` and ``tightened_dir`` say a wider permission on the
     file or its directory was corrected on open."""
@@ -214,15 +217,26 @@ class Store:
         if tightened_dir:
             data_dir.chmod(0o700)
         path = data_dir / DATA_FILE
-        if path.is_symlink():
-            raise RefusedError(f"the data file {path} is a symbolic link")
         tightened = False
-        if path.exists():
-            if stat.S_IMODE(path.stat().st_mode) & 0o077:
-                path.chmod(0o600)
+        # Tightening the directory is too late for a file planted while it was open, so every
+        # file SQLite will open here must be absent or the user's own: regular, one link.
+        for side in (path, *(data_dir / f"{DATA_FILE}{end}" for end in SIDE_FILES)):
+            try:
+                found = os.lstat(side)
+            except FileNotFoundError:
+                continue
+            ours = not hasattr(os, "geteuid") or found.st_uid == os.geteuid()
+            if not (stat.S_ISREG(found.st_mode) and found.st_nlink == 1 and ours):
+                raise RefusedError(f"{side} is not a file of your own")
+            if stat.S_IMODE(found.st_mode) & 0o077:
+                side.chmod(0o600)
                 tightened = True
-        else:
-            os.close(os.open(path, os.O_CREAT | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0), 0o600))
+        if not path.exists():
+            os.close(
+                os.open(
+                    path, os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0), 0o600
+                )
+            )
         connection = sqlite3.connect(  # autocommit: Python opens no transaction of its own
             path,
             timeout=BUSY_TIMEOUT_SECONDS,
