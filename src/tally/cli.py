@@ -62,8 +62,11 @@ def account_name(text: str) -> str:
 
 
 def transaction_id(text: str) -> int:
-    # ASCII digits, never int() alone: it reads " 4", "4_0" and Arabic-Indic digits too.
-    if not (text.isascii() and text.isdigit() and len(text) <= 19) or int(text) >= 2**63:
+    # ASCII digits, never int() alone: it reads " 4", "4_0" and Arabic-Indic digits too. The
+    # length bounds int()'s cost; no mutate: 20 digits are always refused by 2**63 as well.
+    if (
+        not (text.isascii() and text.isdigit() and len(text) <= 19) or int(text) >= 2**63
+    ):  # pragma: no mutate
         raise argparse.ArgumentTypeError("not a transaction id")
     return int(text)
 
@@ -138,13 +141,21 @@ def build_parser() -> argparse.ArgumentParser:
     unmatched = commands.add_parser(
         "uncategorised", parents=[common], **STRICT, help="list the transactions no rule matched"
     )
-    unmatched.add_argument("--format", choices=["table", "csv", "json"], default="table")
+    unmatched.add_argument(
+        "--format",
+        choices=["table", "csv", "json"],
+        default="table",  # pragma: no mutate (any other default also reaches the table branch)
+    )
     unmatched.set_defaults(run=uncategorised)
     explain = commands.add_parser(
         "explain", parents=[common], **STRICT, help="say why a transaction got its category"
     )
     explain.add_argument("id", type=transaction_id, help="the transaction's id, as listed")
-    explain.add_argument("--format", choices=["table", "json"], default="table")
+    explain.add_argument(
+        "--format",
+        choices=["table", "json"],
+        default="table",  # pragma: no mutate (any other default also reaches the table branch)
+    )
     explain.set_defaults(run=explain_run)
     return parser
 

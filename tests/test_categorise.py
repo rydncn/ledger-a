@@ -424,6 +424,20 @@ def test_ac38_a_rules_own_text_is_replaced_on_the_terminal(
     ]
 
 
+@pytest.mark.parametrize("command", [["uncategorised"], ["explain", "4"]])
+def test_the_data_directory_comes_from_the_configuration_too(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], command: list[str]
+) -> None:
+    place = samples(tmp_path, capsys)
+    config = tmp_path / "with-data-dir.toml"
+    config.write_text(f'data_dir = "data"\n{CONFIG}{RULES}', encoding="utf-8")
+    code = main([*command, "--config", str(config)])
+    captured = capsys.readouterr()
+    assert (code, captured.err) == (0, "")
+    assert "TFL TRAVEL CH" in captured.out or "SALARY" in captured.out
+    assert place.data_dir == tmp_path / "data"
+
+
 def test_ac34_an_empty_data_file_lists_nothing(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
