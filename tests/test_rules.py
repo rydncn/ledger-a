@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from tally.config import ConfigError
@@ -271,3 +273,14 @@ def test_ac29_a_rule_amount_in_that_shape_loads(text: str) -> None:
 
 def test_ac29_no_rules_is_no_rules() -> None:
     assert load([]) == []
+
+
+def test_ac29_a_pattern_reads_a_bounded_part_of_a_hostile_description() -> None:
+    # An unanchored pattern backtracks quadratically over a long subject: 1 MiB took minutes.
+    rules = load([{"name": "Prime", "description_matches": ".*PRIME"}])
+    hostile = entry("A" * 1_048_576, -100)
+    started = time.perf_counter()
+    assert isinstance(categorise(hostile, rules), NoMatch)
+    assert time.perf_counter() - started < 1
+    assert isinstance(categorise(entry("A" * 990 + "PRIME", -100), rules), Match)
+    assert isinstance(categorise(entry("A" * 1000 + "PRIME", -100), rules), NoMatch)

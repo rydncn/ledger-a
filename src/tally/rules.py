@@ -32,6 +32,10 @@ _KEYS = frozenset(
 # alone also reads "1_000", " 5 ", "NaN", "1e5" and Arabic-Indic digits.
 _AMOUNT = re.compile(r"[+-]?[0-9]{1,19}(?:\.[0-9]{1,3})?")
 
+# A pattern searches this much of a description: more than any bank writes, and a bound on
+# what an unanchored pattern costs over a hostile one, which backtracks quadratically.
+MATCHED = 1000
+
 
 @dataclass(frozen=True)
 class Rule:
@@ -69,7 +73,7 @@ class Rule:
             self.contains.casefold() not in entry.description.casefold()
         ):
             return f"description does not contain {self.contains}"
-        if self.matches is not None and self.matches.search(entry.description) is None:
+        if self.matches is not None and self.matches.search(entry.description[:MATCHED]) is None:
             return f"description does not match {self.matches.pattern}"
         if self.above is not None and not entry.amount > self.above:
             return f"amount is not above {self.above}"
