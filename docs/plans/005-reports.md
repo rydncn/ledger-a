@@ -49,11 +49,15 @@ Each task: the test first, seen to fail for the right reason, then the code, the
 ### Task 4: What the review, the audit and mutation testing found
 
 - **Observed by:**
+  - **The security audit** (subagent with the security-audit skill, the diff, `CLAUDE.md` and the design): one low finding, confirmed by probe. A 1 MB description (the importer's limit) padded every line of `payees --top 1000` to its width: 992 MB of output, 2.9 GB of memory. Fixed test-first: `test_ac31_a_huge_description_costs_its_own_line_not_every_line` saw 6,000,219 characters first; the table now shortens a description to 60 characters (`…`), CSV and JSON keep it whole. Raised and left: JPY and BHD amount cells against AC32's two decimals (for the owner); argparse echoing the user's own unknown argument raw, and a closed pipe reported as a data-file error (older than this slice; for the whole-codebase review).
+  - **The fresh-context review** (subagent, worktree at efa967e without the plans, the handoff or the trial records, the diff without the plan, `docs/review-brief.md` with the spreadsheet, the terminal, the month parsing, SQLite's `sum` and `Decimal` named): 0 must-fix, 3 should-fix. Fixed: `account list --format csv` had no test of its formula prefix; `test_ac32_an_account_name_in_csv_never_runs_as_a_formula` was seen to fail with `_cell` removed. Fixed: ADR 0004's "sums in SQL" replaced in part by ADR 0010, with the design and `CLAUDE.md` pointing at it. For the owner: amounts in a currency without two decimal places (F1, as the audit). Its four answers: the CSV round-trips and ends `\r\n`; only `ESC[31m` and `ESC[0m` reach a terminal, around negative amounts; months parse in ASCII only; no SQLite `sum`; `Decimal` only through `from_minor`; a report during an import's write lock exits at once; 1,000,000 rows cost 2.5 s and 27 MB.
+  - **The audit ran in parallel with the review**, not before it as `CLAUDE.md` says; the review read the code before the audit's two-line fix.
+  - **Mutation testing, after the audit's fix:** 1,244 mutants, 15 survived. Gaps, now tests: `--from` equal to `--to`; the `--top` default; `report` and `payees` with `data_dir` from `tally.toml`. Rewritten so nothing survives: income and spending as `max` and `min` of the amount, and the sort key as a named function with no `""`. Ruled with `pragma: no mutate` and the reason beside it: `newline=None` (equivalent off Windows; the Windows-style test kills the rest), `zip(strict=True)` (every line has the header's cells), and the `--format` default (the table is the branch for anything else). The confirming run: 1,239 mutants, 0 survived. CI's mutation job reruns the set on the final commit.
 
 ## Done when
 
-- [ ] Every criterion above has a `test_acNN_` test seen to fail before its code and pass after
-- [ ] The five checks pass locally and in CI; mutation testing has no survivors, or each is ruled on beside the code
-- [ ] The fresh-context review and the security audit have run with the four questions answered by name; findings fixed test-first or ruled on
-- [ ] `docs/effort.md`, `docs/trial-log.md`, `docs/playbook-feedback.md` have this slice's rows; `docs/handoff.md` says what comes next
+- [x] Every criterion above has a `test_acNN_` test seen to fail before its code and pass after
+- [x] The five checks pass locally and in CI; mutation testing has no survivors, or each is ruled on beside the code
+- [x] The fresh-context review and the security audit have run with the four questions answered by name; findings fixed test-first or ruled on
+- [x] `docs/effort.md`, `docs/trial-log.md`, `docs/playbook-feedback.md` have this slice's rows; `docs/handoff.md` says what comes next
 - [ ] The pull request is out of draft with CI green on its final commit
