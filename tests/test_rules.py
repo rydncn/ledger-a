@@ -281,7 +281,7 @@ def test_ac29_no_rules_is_no_rules() -> None:
 def test_ac29_a_pattern_reads_a_bounded_part_of_a_hostile_description() -> None:
     # An unanchored pattern backtracks quadratically over a long subject: 1 MiB took minutes.
     rules = load([{"name": "Prime", "description_matches": ".*PRIME"}])
-    hostile = entry("A" * 1_048_576, -100)
+    hostile = entry("A" * 200_000, -100)  # about 4 s unbounded, so a failure is quick
     started = time.perf_counter()
     assert isinstance(categorise(hostile, rules), NoMatch)
     assert time.perf_counter() - started < 1

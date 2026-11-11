@@ -91,6 +91,14 @@ def account_name(text: str) -> str:
     return name
 
 
+def existing_name(text: str) -> str:
+    """An account to look up: any name ``add`` once took, so none is left unreachable."""
+    name = text.strip()
+    if not name:
+        raise argparse.ArgumentTypeError("must not be empty")
+    return name
+
+
 def transaction_id(text: str) -> int:
     # ASCII digits, never int() alone: it reads " 4", "4_0" and Arabic-Indic digits too. The
     # length bounds int()'s cost; no mutate: 20 digits are always refused by 2**63 as well.
@@ -152,7 +160,7 @@ def build_parser() -> argparse.ArgumentParser:
         **STRICT,
         help="delete an account and everything imported into it",
     )
-    forget.add_argument("name", type=account_name)
+    forget.add_argument("name", type=existing_name)
     forget.add_argument("--yes", action="store_true", help="do not ask first")
     forget.set_defaults(run=account_forget)
 
@@ -164,7 +172,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     importing.add_argument("file", help="a CSV or OFX statement")
     importing.add_argument(
-        "--account", required=True, type=account_name, help="the account the statement belongs to"
+        "--account", required=True, type=existing_name, help="the account the statement belongs to"
     )
     importing.add_argument(
         "--layout", metavar="NAME", help="the [layouts.NAME] table that describes the CSV"
@@ -225,8 +233,6 @@ def build_parser() -> argparse.ArgumentParser:
 def open_store(args: argparse.Namespace, config: Config) -> Store:
     """Open the data file where the flag, the variable or the configuration puts it."""
     store = Store.open(data_dir_for(args.data_dir, config))
-    if store.tightened_dir:
-        print("tightened the data directory's permissions to 0700", file=sys.stderr)
     if store.tightened:
         print("tightened the data file's permissions to 0600", file=sys.stderr)
     return store

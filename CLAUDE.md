@@ -23,7 +23,7 @@ uv run python scripts/audit.py             # Dependency audit with the dated all
 
 `UV_NO_BUILD=1` is set for every session in `.claude/settings.json`: installs refuse source builds. The one exception is the mutation group (ADR 0003).
 
-Commands that publish, merge or rewrite are set to ask first in `.claude/settings.json`: a push to `main` or `master`, a force push, a deletion or mirror, a push with `--no-verify` or through `git -C`/`-c`, `gh pr merge`, `create` and `ready`, `gh api` with a method or fields, the GitHub tools that merge, push files or make branches, releases and publishing. A plain push of a named branch does not ask: CI and the owner's merge are its gate (ADR 0007). Never work around that.
+Commands that publish, merge or rewrite are set to ask first in `.claude/settings.json`: a push to `main` or `master`, a force push, a deletion or mirror, a push with `--no-verify` or through `git -C`/`-c`, `gh pr merge`, `create` and `ready`, `gh api` with a method or fields, the GitHub tools that merge, push files or make branches, releases and publishing. A plain push of a named branch does not ask, and nor does the GitHub tool that edits a pull request's description or marks it ready: CI and the owner's merge are their gate (ADR 0007). Whatever the command, the `pre-push` hook refuses a push to `main` or `master`. Never work around that.
 
 At the start of a session, if the plugin check reports missing plugins, tell the user before starting work rather than doing their steps by hand.
 

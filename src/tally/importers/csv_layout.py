@@ -214,8 +214,11 @@ class _Rows:
         except ValueError:
             return Unreadable(line, f"date does not match {date_format}")
         # With no separator, strptime guesses the width ("2026111" is 1 November): such a
-        # format reads only what it writes.
-        if _COMPACT.fullmatch(date_format) and day.strftime(date_format) != text:
+        # format reads only what it writes (month names in any case, as strptime reads them).
+        if (
+            _COMPACT.fullmatch(date_format)
+            and day.strftime(date_format).casefold() != text.casefold()
+        ):
             return Unreadable(line, f"date does not match {date_format}")
         date = day.date().isoformat()
         try:

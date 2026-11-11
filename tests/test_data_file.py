@@ -45,17 +45,30 @@ def test_ac06_a_wider_data_file_is_tightened_and_reported(tmp_path: Path) -> Non
         assert store.tightened is False
 
 
-def test_ac06_a_wider_data_directory_is_tightened_and_reported_before_any_file_opens(
+def test_ac06_a_data_directory_others_can_write_is_refused_and_left_alone(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     shared = tmp_path / "shared"
     shared.mkdir()
-    shared.chmod(0o777)  # as a folder another user could plant a -wal file in
-    assert main(["account", "add", "current", "--currency", "GBP", "--data-dir", str(shared)]) == 0
-    assert mode(shared) == 0o700
-    assert capsys.readouterr().err == "tightened the data directory's permissions to 0700\n"
-    assert main(["account", "list", "--data-dir", str(shared)]) == 0
-    assert capsys.readouterr().err == ""
+    shared.chmod(0o775)  # as a folder a group could plant a -wal file in; may be the user's ~
+    argv = ["account", "add", "current", "--currency", "GBP", "--data-dir", str(shared)]
+    assert main(argv) == 1
+    assert capsys.readouterr().err == f"other users can write the data directory {shared}\n"
+    assert mode(shared) == 0o775  # not Tally's to change
+    assert list(shared.iterdir()) == []
+    shared.chmod(0o755)  # readable by others is no risk: the file is 0600
+    assert main(argv) == 0
+
+
+def test_ac07_two_first_opens_at_once_both_succeed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with Store.open(tmp_path):
+        pass
+    # As if another copy created the file between this one's check and its open.
+    monkeypatch.setattr(Path, "exists", lambda self: False)
+    with Store.open(tmp_path):
+        pass
 
 
 def test_ac06_a_data_directory_that_belongs_to_another_user_is_refused(
@@ -87,8 +100,7 @@ def test_ac06_a_side_file_planted_while_the_directory_was_open_is_refused(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], side: str
 ) -> None:
     shared = tmp_path / "shared"
-    shared.mkdir()
-    shared.chmod(0o777)
+    shared.mkdir(mode=0o700)  # private now, but planted in while it was open to others
     planted = shared / side
     planted.write_bytes(b"")
     planted.chmod(0o666)

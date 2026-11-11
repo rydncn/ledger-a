@@ -342,7 +342,7 @@ def test_ac19_verbose_is_off_by_default_and_leaves_nothing_behind(
         ),
         (["import", "--account", "current"], "file"),
         (["import", "--account", "current", "--layout", "bank"], "file"),
-        (["import", "--account", "a\tb", "--layout", "bank", "x.csv"], "must not contain"),
+        (["import", "--account", "  ", "--layout", "bank", "x.csv"], "must not be empty"),
         (["import", "--account", " ", "--layout", "bank", "x.csv"], "must not be empty"),
     ],
 )

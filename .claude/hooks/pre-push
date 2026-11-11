@@ -8,6 +8,16 @@
 
 set -eu
 
+# Nothing reaches main or master by a push, however the command spells it (git push,
+# git push origin HEAD, @): changes reach them by a reviewed merge (ADR 0007).
+while read -r _local _sha remote _remote_sha; do
+  case "$remote" in
+    refs/heads/main|refs/heads/master)
+      echo "pre-push: refusing to push to ${remote#refs/heads/}; open a pull request instead." >&2
+      exit 1 ;;
+  esac
+done
+
 [ -f pyproject.toml ] || exit 0
 command -v uv >/dev/null 2>&1 || { echo "pre-push: uv is not installed, so nothing was checked locally; CI will." >&2; exit 0; }
 

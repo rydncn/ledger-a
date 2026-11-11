@@ -494,3 +494,12 @@ def test_ac13_a_compact_date_format_reads_only_its_own_width(tmp_path: Path) -> 
     assert short == Unreadable(2, "date does not match %Y%m%d")
     assert isinstance(whole, Transaction)
     assert whole.date == "2026-11-01"
+
+
+def test_ac13_a_compact_format_reads_a_month_name_in_any_case(tmp_path: Path) -> None:
+    layout = Layout.from_config("named", {**BANK, "date_format": "%d%b%Y"})
+    path = bank_file(tmp_path, "01NOV2026,UPPER,1.00,,", "01Nov2026,TITLE,1.00,,")
+    assert [r.date for r in read(path, layout, 2) if isinstance(r, Transaction)] == [
+        "2026-11-01",
+        "2026-11-01",
+    ]

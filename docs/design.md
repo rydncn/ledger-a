@@ -123,7 +123,7 @@ Each becomes a test named `test_acNN_...`. "Refused" always means: a message on 
 #### AC6. The data file is the user's alone, wherever it is
 - **Given** `TALLY_DATA_DIR` set to a fresh path (and, in another case, `--data-dir`)
 - **When** any writing command runs
-- **Then** the directory is created `0700` and the file `0600`; a pre-existing data file with wider permissions is tightened to `0600` and the user is told on standard error
+- **Then** the directory is created `0700` and the file `0600`; a pre-existing data file with wider permissions is tightened to `0600` and the user is told on standard error; a pre-existing data directory that another user owns or can write is refused (exit 1) and left as it is, and so is a data, `-wal`, `-shm` or `-journal` file in it that is a link, has a second hard link or belongs to another user (the whole-codebase audit)
 
 #### AC7. Two copies at once count each transaction once
 - **Given** account `current` and a statement of 2,000 rows

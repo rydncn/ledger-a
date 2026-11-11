@@ -391,3 +391,15 @@ def test_ac03_forget_leaves_no_forgotten_description_in_the_data_file(
     capsys.readouterr()
     left = b"".join(p.read_bytes() for p in tmp_path.iterdir() if p.name.startswith("tally.sqlite"))
     assert b"TRANSFER TO CURRENT" not in left
+
+
+def test_ac03_an_account_stored_with_a_line_separator_can_still_be_forgotten(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    name = "joint" + chr(0x2028) + "old"  # accepted by add before names refused it
+    with Store.open(tmp_path) as store:
+        store.add_account(name, "GBP")
+    assert main(["account", "forget", name, "--yes", "--data-dir", str(tmp_path)]) == 0
+    capsys.readouterr()
+    with Store.open(tmp_path) as store:
+        assert store.accounts() == []

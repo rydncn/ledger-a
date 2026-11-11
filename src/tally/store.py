@@ -188,8 +188,7 @@ SIDE_FILES = ("-wal", "-shm", "-journal")  # what SQLite opens beside the data f
 
 
 class Store:
-    """An open data file. ``tightened`` and ``tightened_dir`` say a wider permission on the
-    file or its directory was corrected on open."""
+    """An open data file. ``tightened`` says a wider permission was corrected on open."""
 
     def __init__(
         self,
@@ -197,12 +196,10 @@ class Store:
         *,
         path: Path,
         tightened: bool,
-        tightened_dir: bool = False,
     ) -> None:
         self._connection = connection
         self._path = path
         self.tightened = tightened
-        self.tightened_dir = tightened_dir
 
     @classmethod
     def open(cls, data_dir: Path) -> Self:
@@ -213,12 +210,13 @@ class Store:
         info = data_dir.stat()
         if hasattr(os, "geteuid") and info.st_uid != os.geteuid():
             raise RefusedError(f"the data directory {data_dir} belongs to another user")
-        tightened_dir = bool(stat.S_IMODE(info.st_mode) & 0o077)
-        if tightened_dir:
-            data_dir.chmod(0o700)
+        # Readable by others is no risk (the files are 0600); writable is. A directory that
+        # was there already, perhaps the user's home, is not Tally's to change: refused.
+        if stat.S_IMODE(info.st_mode) & 0o022:
+            raise RefusedError(f"other users can write the data directory {data_dir}")
         path = data_dir / DATA_FILE
         tightened = False
-        # Tightening the directory is too late for a file planted while it was open, so every
+        # A file planted while the directory was writable outlives any check of it, so every
         # file SQLite will open here must be absent or the user's own: regular, one link.
         for side in (path, *(data_dir / f"{DATA_FILE}{end}" for end in SIDE_FILES)):
             try:
@@ -232,17 +230,13 @@ class Store:
                 side.chmod(0o600)
                 tightened = True
         if not path.exists():
-            os.close(
-                os.open(
-                    path, os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0), 0o600
-                )
-            )
+            os.close(os.open(path, os.O_CREAT | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0), 0o600))
         connection = sqlite3.connect(  # autocommit: Python opens no transaction of its own
             path,
             timeout=BUSY_TIMEOUT_SECONDS,
             autocommit=True,  # pragma: no mutate
         )
-        store = cls(connection, path=path, tightened=tightened, tightened_dir=tightened_dir)
+        store = cls(connection, path=path, tightened=tightened)
         try:
             with _busy_is_locked():
                 _switch_to_wal(connection)
