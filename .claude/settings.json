@@ -41,7 +41,6 @@
       "Bash(uv run --no-build ruff *)",
       "Bash(uv run --no-build mypy*)",
       "Bash(uv run --no-build pytest*)",
-      "Bash(uv run --no-build pip-audit*)",
       "Bash(uv run --no-build python scripts/audit.py*)",
       "Bash(uv run --no-build python scripts/check_lock.py*)",
       "Bash(uv run --no-build python scripts/mutation_changed.py*)",

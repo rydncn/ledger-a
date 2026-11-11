@@ -27,7 +27,16 @@ RESULT_LINE = re.compile(r"^\s*(?P<name>\S+): (?P<status>.+)$")
 
 def changed_source_files(base: str) -> list[Path]:
     diff = subprocess.run(
-        ["git", "diff", "--name-only", "--diff-filter=AM", f"{base}...HEAD", "--", str(SOURCE)],
+        [
+            "git",
+            "diff",
+            "--name-only",
+            "--diff-filter=AM",
+            "--end-of-options",
+            f"{base}...HEAD",
+            "--",
+            str(SOURCE),
+        ],
         capture_output=True,
         text=True,
         check=True,

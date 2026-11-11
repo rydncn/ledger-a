@@ -32,7 +32,7 @@
 
 ## Permissions to allow
 
-Beside the template's deny and ask rules: `Bash(uv run --no-build ruff *)`, `Bash(uv run --no-build mypy*)`, `Bash(uv run --no-build pytest*)`, `Bash(uv run --no-build pip-audit*)`, one `Bash(uv run --no-build python scripts/<name>.py*)` per script (not `scripts/*`, which would let the agent run any script it writes there unprompted), `Bash(uv sync --locked --no-build*)`, `Bash(uv lock --check*)`, `Bash(node scripts/check-rules.js*)`. Ask before `uv publish`, `uv build` and `twine`.
+Beside the template's deny and ask rules: `Bash(uv run --no-build ruff *)`, `Bash(uv run --no-build mypy*)`, `Bash(uv run --no-build pytest*)`, one `Bash(uv run --no-build python scripts/<name>.py*)` per script (not `scripts/*`, which would let the agent run any script it writes there unprompted), `Bash(uv sync --locked --no-build*)`, `Bash(uv lock --check*)`, `Bash(node scripts/check-rules.js*)`. Ask before `uv publish`, `uv build` and `twine`. Never `Bash(uv run --no-build pip-audit*)`: without `--disable-pip`, `pip-audit -r <file>` pip-installs the file's requirements and runs their build backends, which `UV_NO_BUILD` does not stop (the whole-codebase audit observed it); the audit runs through `scripts/audit.py`, allowed by name.
 
 ## What the trial learned
 
@@ -50,16 +50,31 @@ Rule 17's budget counts what a session added since its first reply. The same ari
 
 ```python
 import json, sys
-start = last = None; peak = 0
+
+start = last = None
+peak = 0
 for line in open(sys.argv[1], encoding="utf-8"):
-    try: row = json.loads(line)
-    except ValueError: continue
+    try:
+        row = json.loads(line)
+    except ValueError:
+        continue
     if row.get("type") == "system" and row.get("subtype") == "compact_boundary":
-        start = None; continue
+        start = None
+        continue
     usage = (row.get("message") or {}).get("usage")
-    if row.get("type") != "assistant" or row.get("isSidechain") or not usage: continue
-    last = sum(usage.get(k, 0) for k in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens", "output_tokens"))
-    peak = max(peak, last); start = start if start is not None else last
+    if row.get("type") != "assistant" or row.get("isSidechain") or not usage:
+        continue
+    last = sum(
+        usage.get(k, 0)
+        for k in (
+            "input_tokens",
+            "cache_read_input_tokens",
+            "cache_creation_input_tokens",
+            "output_tokens",
+        )
+    )
+    peak = max(peak, last)
+    start = start if start is not None else last
 print(f"start {start:,} peak {peak:,} added at peak {peak - start:,}")
 ```
 
