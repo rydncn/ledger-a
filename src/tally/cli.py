@@ -9,6 +9,7 @@ when another copy of Tally holds the data file.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import csv
 import io
 import json
@@ -21,7 +22,7 @@ import unicodedata
 from collections.abc import Sequence
 from itertools import groupby
 from pathlib import Path
-from typing import TextIO, TypedDict
+from typing import NoReturn, TextIO, TypedDict
 
 from tally import __version__
 from tally.config import Config, ConfigError, data_dir_for, load_config
@@ -112,9 +113,17 @@ def currency_code(text: str) -> str:
     return text.upper()
 
 
+class _Parser(argparse.ArgumentParser):
+    """argparse, with its own messages made printable: they quote the command line (AC38)."""
+
+    def error(self, message: str) -> NoReturn:
+        self.print_usage(sys.stderr)
+        self.exit(EXIT_USAGE, f"{self.prog}: error: {printable(message)}\n")
+
+
 def build_parser() -> argparse.ArgumentParser:
-    """The top-level parser, with one subparser per command."""
-    parser = argparse.ArgumentParser(
+    """The top-level parser, with one subparser per command (each a ``_Parser`` too)."""
+    parser = _Parser(
         prog="tally",
         description="See where your money goes, from your bank's statement files.",
         **STRICT,
@@ -122,7 +131,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"tally {__version__}")
     commands = parser.add_subparsers(dest="command", metavar="<command>")
 
-    common = argparse.ArgumentParser(add_help=False)  # pragma: no mutate (None is False here)
+    common = _Parser(add_help=False)  # pragma: no mutate (None is False here)
     common.add_argument("--config", metavar="FILE", help="the tally.toml to read")
     common.add_argument("--data-dir", metavar="DIR", help="where the data file lives")
 
@@ -186,7 +195,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     explain.set_defaults(run=explain_run)
 
-    period = argparse.ArgumentParser(add_help=False, parents=[common])  # pragma: no mutate
+    period = _Parser(add_help=False, parents=[common])  # pragma: no mutate
     period.add_argument("--month", type=month, help="one month, e.g. 2026-10")
     period.add_argument(
         "--from", dest="first", type=month, metavar="MONTH", help="the first month, inclusive"
@@ -586,6 +595,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.print_usage(sys.stderr)
         return EXIT_USAGE
     try:
+        code = _run(args)
+        sys.stdout.flush()  # here, so a closed pipe is met inside the try and not at exit
+    except BrokenPipeError:
+        # Whoever read standard output went away (``| head``): nothing to say, and nothing
+        # more may be written, or the interpreter reports the pipe again as it exits.
+        with contextlib.suppress(OSError, ValueError):
+            os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        return EXIT_REFUSED
+    return code
+
+
+def _run(args: argparse.Namespace) -> int:
+    """The command, with each refusal made one line on standard error and its exit code."""
+    try:
         config = load_config(args.config)
         code: int = args.run(args, config)
     # Every message goes through printable: keys, paths and names can come from the user's
@@ -602,6 +625,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     except LockedError as error:
         print(printable(str(error)), file=sys.stderr)
         return EXIT_LOCKED
+    except BrokenPipeError:
+        raise  # standard output, not the data file: ``main`` ends quietly
     except OSError as error:
         message = f"cannot open the data file: {error.strerror}: {error.filename}"
         print(printable(message), file=sys.stderr)

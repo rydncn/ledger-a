@@ -12,5 +12,12 @@
     "dirs": ["src"],
     "extensions": [".py"],
     "pattern": "\\b(urllib\\.request|http\\.client|socket|requests|httpx|urlopen|smtplib|ftplib)\\b"
+  },
+  {
+    "id": "no-raw-control-character",
+    "message": "A raw control character (C0 but tab and line feed, or DEL) is in source: an escape written in a tool call can arrive as the character itself. Write chr(0x1B) or an escape instead. See CLAUDE.md § Lessons.",
+    "dirs": ["src", "tests", "scripts", ".claude", ".github", "docs/python-pack"],
+    "extensions": [".py", ".js", ".mjs", ".cjs", ".json", ".toml", ".sh", ".yml", ".yaml", ".md"],
+    "pattern": "[\\u0000-\\u0008\\u000b-\\u001f\\u007f]"
   }
 ]

@@ -6,6 +6,8 @@ through a real subprocess, so the installed entry point is proved too.
 
 from __future__ import annotations
 
+import io
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -249,3 +251,67 @@ def test_each_account_help_screen_is_whole(
         main([*argv, "--help"])
     assert raised.value.code == 0
     assert capsys.readouterr().out == expected
+
+
+ESC = chr(0x1B)
+BEL = chr(0x07)
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["report", "--month", "2026-10", f"{ESC}]0;x{BEL}"],  # an unrecognised argument
+        ["account", "list", "--format", f"{ESC}[2J"],  # an invalid choice
+        ["report", "--month", f"{ESC}[2J"],  # a value its type refused
+        [f"{ESC}[2J"],  # an invalid command
+    ],
+)  # argparse quotes the choices and the refused value with repr; the unrecognised it did not
+def test_ac38_argparse_messages_show_control_characters_and_run_none(
+    capsys: pytest.CaptureFixture[str], argv: list[str]
+) -> None:
+    with pytest.raises(SystemExit) as raised:
+        main(argv)
+    captured = capsys.readouterr()
+    assert raised.value.code == 2
+    assert captured.out == ""
+    assert ESC not in captured.err
+    assert BEL not in captured.err
+    assert captured.err.endswith("\n")
+
+
+class _ClosedPipe(io.StringIO):
+    """Standard output after whoever read it went away, as ``| head`` leaves it."""
+
+    def write(self, text: str) -> int:
+        raise BrokenPipeError(32, "Broken pipe")
+
+
+def test_ac34_a_reader_closing_standard_output_is_not_a_data_file_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert (
+        main(["account", "add", "current", "--currency", "GBP", "--data-dir", str(tmp_path)]) == 0
+    )
+    monkeypatch.setattr(sys, "stdout", _ClosedPipe())
+    code = main(["account", "list", "--data-dir", str(tmp_path)])
+    assert (code, capsys.readouterr().err) == (1, "")
+
+
+def test_ac34_a_closed_standard_output_ends_quietly_in_a_real_process(tmp_path: Path) -> None:
+    tally = Path(sys.executable).with_name("tally")
+    data = ["--data-dir", str(tmp_path)]
+    subprocess.run(
+        [str(tally), "account", "add", "current", "--currency", "GBP", *data], check=True
+    )
+    read_end, write_end = os.pipe()
+    os.close(read_end)  # the reader has gone before Tally writes, as after ``| head``
+    try:
+        result = subprocess.run(
+            [str(tally), "account", "list", *data],
+            stdout=write_end,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+    finally:
+        os.close(write_end)
+    assert (result.returncode, result.stderr) == (1, b"")
