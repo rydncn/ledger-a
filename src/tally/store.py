@@ -167,6 +167,23 @@ def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
+FINGERPRINT_TAKEN = "its FITID is already used by a different transaction"
+
+
+def _same(connection: sqlite3.Connection, account: Account, row: Transaction) -> bool:
+    """Whether the row already stored under this fingerprint has the same date and amount.
+
+    A CSV fingerprint holds both, so only an OFX FITID can be reused for a different
+    transaction (ADR 0012). The description may differ: a bank's re-export renames payees.
+    """
+    found = connection.execute(
+        "SELECT 1 FROM transactions WHERE account_id = ? AND fingerprint = ?"  # pragma: no mutate
+        " AND date = ? AND amount_minor = ?",  # pragma: no mutate
+        (account.id, row.fingerprint, row.date, row.amount_minor),
+    ).fetchone()
+    return found is not None
+
+
 class Store:
     """An open data file. ``tightened`` and ``tightened_dir`` say a wider permission on the
     file or its directory was corrected on open."""
@@ -381,8 +398,12 @@ class Store:
                 ).rowcount
                 if inserted:
                     added += 1
-                else:
+                elif _same(connection, account, outcome):
                     duplicates += 1
+                else:  # a fingerprint is the file's claim; a different row under it is no repeat
+                    unreadable_count += 1
+                    if unreadable_count <= UNREADABLE_KEPT:
+                        unreadable.append(Unreadable(outcome.line, FINGERPRINT_TAKEN))
             connection.execute(
                 "UPDATE imports SET added = ?, duplicates = ?, unreadable = ?"  # pragma: no mutate
                 " WHERE id = ?",  # pragma: no mutate
