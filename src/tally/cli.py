@@ -86,7 +86,7 @@ def account_name(text: str) -> str:
     name = text.strip()
     if not name:
         raise argparse.ArgumentTypeError("must not be empty")
-    if any(unicodedata.category(c).startswith("C") for c in name):
+    if printable(name) != name:  # what the terminal would show otherwise, a line break too
         raise argparse.ArgumentTypeError("must not contain control characters or line breaks")
     return name
 

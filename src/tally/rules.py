@@ -144,6 +144,11 @@ def _rule(position: int, table: Mapping[str, object]) -> Rule:
         raise ConfigError(f"rules[{position}]: {problem}") from None
 
 
+def _hidden(c: str) -> bool:
+    """What a terminal would act on or show otherwise: controls and line or paragraph breaks."""
+    return unicodedata.category(c) in {"Zl", "Zp"} or unicodedata.category(c).startswith("C")
+
+
 def _strings(table: Mapping[str, object]) -> dict[str, str]:
     """The rule's keys as strings, with a name a terminal can show and no empty text."""
     text: dict[str, str] = {}
@@ -157,8 +162,10 @@ def _strings(table: Mapping[str, object]) -> dict[str, str]:
         raise _RuleError("no name")
     if not text["name"].strip():
         raise _RuleError("name must not be empty")
-    if any(unicodedata.category(c).startswith("C") for c in text["name"]):
-        raise _RuleError("name must not contain control characters")
+    if any(_hidden(c) for c in text["name"]):
+        raise _RuleError("name must not contain control characters or line breaks")
+    if text["name"] == "uncategorised":  # the report's table shows no match so
+        raise _RuleError('name must not be "uncategorised", which the report gives no match')
     for key in ("description_contains", "description_matches"):
         if text.get(key) == "":  # would match everything; a rule with only a name says so
             raise _RuleError(f"{key} must not be empty")

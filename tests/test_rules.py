@@ -199,8 +199,8 @@ def test_ac28_a_rule_with_no_conditions_has_none_to_name() -> None:
         ([{"name": "A", "amount_below": -100}], "rules[1]: amount_below must be a string"),
         ([{"name": "A", "account": ["x"]}], "rules[1]: account must be a string"),
         ([{"name": "  "}], "rules[1]: name must not be empty"),
-        ([{"name": "A\x1b[31m"}], "rules[1]: name must not contain control characters"),
-        ([{"name": "A" + chr(0x202E)}], "rules[1]: name must not contain control characters"),
+        ([{"name": "A\x1b[31m"}], "rules[1]: name must not contain control characters or line breaks"),
+        ([{"name": "A" + chr(0x202E)}], "rules[1]: name must not contain control characters or line breaks"),
         (
             [{"name": "A", "description_contains": ""}],
             "rules[1]: description_contains must not be empty",
@@ -284,3 +284,16 @@ def test_ac29_a_pattern_reads_a_bounded_part_of_a_hostile_description() -> None:
     assert time.perf_counter() - started < 1
     assert isinstance(categorise(entry("A" * 990 + "PRIME", -100), rules), Match)
     assert isinstance(categorise(entry("A" * 1000 + "PRIME", -100), rules), NoMatch)
+
+
+@pytest.mark.parametrize(
+    ("name", "said"),
+    [
+        ("a" + chr(0x2028) + "b", "name must not contain control characters or line breaks"),
+        ("a" + chr(0x2029) + "b", "name must not contain control characters or line breaks"),
+        ("uncategorised", 'name must not be "uncategorised", which the report gives no match'),
+    ],
+)
+def test_ac29_a_rule_name_the_report_would_show_otherwise_is_refused(name: str, said: str) -> None:
+    with pytest.raises(ConfigError, match=f"^rules\\[1\\]: {said}$"):
+        load([{"name": name}])

@@ -368,3 +368,13 @@ def test_ac06_the_configuration_places_the_data_file(
     )
     assert (code, out, err) == (0, "", "")
     assert stat.S_IMODE((tmp_path / "conf" / "ledger" / "tally.sqlite").stat().st_mode) == 0o600
+
+
+@pytest.mark.parametrize("separator", [chr(0x2028), chr(0x2029)])
+def test_ac34_an_account_name_holding_a_line_separator_is_refused(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], separator: str
+) -> None:
+    with pytest.raises(SystemExit) as raised:
+        main(["account", "add", f"a{separator}b", "--currency", "GBP", "--data-dir", str(tmp_path)])
+    assert raised.value.code == 2
+    assert "must not contain control characters or line breaks" in capsys.readouterr().err
