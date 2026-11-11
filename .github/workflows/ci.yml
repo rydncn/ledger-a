@@ -102,7 +102,8 @@ jobs:
     name: Mutation testing on changed files
     if: github.event_name == 'pull_request' && !github.event.pull_request.draft
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # A change across seven source files is about 1,750 mutants and 45 minutes.
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
