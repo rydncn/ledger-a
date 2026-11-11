@@ -14,6 +14,7 @@ import pytest
 from tally.cli import main
 from tally.importers import Transaction
 from tally.store import RefusedError, Store
+from tests import SAMPLES
 
 
 def run(argv: list[str], capsys: pytest.CaptureFixture[str]) -> tuple[int, str, str]:
@@ -378,3 +379,15 @@ def test_ac34_an_account_name_holding_a_line_separator_is_refused(
         main(["account", "add", f"a{separator}b", "--currency", "GBP", "--data-dir", str(tmp_path)])
     assert raised.value.code == 2
     assert "must not contain control characters or line breaks" in capsys.readouterr().err
+
+
+def test_ac03_forget_leaves_no_forgotten_description_in_the_data_file(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    data = ["--data-dir", str(tmp_path)]
+    assert main(["account", "add", "savings", "--currency", "GBP", *data]) == 0
+    assert main(["import", str(SAMPLES / "savings.ofx"), "--account", "savings", *data]) == 0
+    assert main(["account", "forget", "savings", "--yes", *data]) == 0
+    capsys.readouterr()
+    left = b"".join(p.read_bytes() for p in tmp_path.iterdir() if p.name.startswith("tally.sqlite"))
+    assert b"TRANSFER TO CURRENT" not in left

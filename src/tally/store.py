@@ -247,6 +247,8 @@ class Store:
             with _busy_is_locked():
                 _switch_to_wal(connection)
                 connection.execute("PRAGMA foreign_keys=ON")  # pragma: no mutate
+                # forget means gone: freed pages are zeroed, in the WAL and the file
+                connection.execute("PRAGMA secure_delete=ON")
                 store._migrate()
         except sqlite3.DatabaseError as error:
             connection.close()

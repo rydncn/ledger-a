@@ -108,7 +108,7 @@ Each becomes a test named `test_acNN_...`. "Refused" always means: a message on 
 #### AC3. Forget deletes the account and everything imported into it
 - **Given** accounts `current` and `savings`, each with imported transactions
 - **When** `tally account forget current --yes`
-- **Then** `account list` shows only `savings`; `report` shows only savings' transactions; the import records for `current` are gone. Without `--yes` on a terminal, a prompt names the account and the count of transactions and refuses on anything but `yes`; without `--yes` and not on a terminal, refused with exit 2
+- **Then** `account list` shows only `savings`; `report` shows only savings' transactions; the import records for `current` are gone, and no forgotten description remains in the data file or its WAL (SQLite `secure_delete`; review 2). Without `--yes` on a terminal, a prompt names the account and the count of transactions and refuses on anything but `yes`; without `--yes` and not on a terminal, refused with exit 2
 
 #### AC4. Forgetting an unknown account is refused
 - **Given** no account `old`
