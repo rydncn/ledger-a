@@ -233,7 +233,9 @@ class Store:
         if not path.exists():
             # no mutate: the lstat check above refuses a link first; O_NOFOLLOW guards a race
             nofollow = getattr(os, "O_NOFOLLOW", 0)  # pragma: no mutate
-            os.close(os.open(path, os.O_CREAT | os.O_WRONLY | nofollow, 0o600))
+            # no mutate: opened only to be created and closed, so any access mode will do
+            flags = os.O_CREAT | os.O_WRONLY | nofollow  # pragma: no mutate
+            os.close(os.open(path, flags, 0o600))
         connection = sqlite3.connect(  # autocommit: Python opens no transaction of its own
             path,
             timeout=BUSY_TIMEOUT_SECONDS,
