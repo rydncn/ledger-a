@@ -168,31 +168,50 @@ def _now() -> str:
 
 
 class Store:
-    """An open data file. ``tightened`` says a wider permission was corrected on open."""
+    """An open data file. ``tightened`` and ``tightened_dir`` say a wider permission on the
+    file or its directory was corrected on open."""
 
-    def __init__(self, connection: sqlite3.Connection, *, path: Path, tightened: bool) -> None:
+    def __init__(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        path: Path,
+        tightened: bool,
+        tightened_dir: bool = False,
+    ) -> None:
         self._connection = connection
         self._path = path
         self.tightened = tightened
+        self.tightened_dir = tightened_dir
 
     @classmethod
     def open(cls, data_dir: Path) -> Self:
         """Open the data file under ``data_dir``, creating both privately, and migrate."""
         data_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        # The directory is checked before any file in it opens: whoever can write it can plant
+        # a -wal file SQLite would write into, or a link the file would be created through.
+        info = data_dir.stat()
+        if hasattr(os, "geteuid") and info.st_uid != os.geteuid():
+            raise RefusedError(f"the data directory {data_dir} belongs to another user")
+        tightened_dir = bool(stat.S_IMODE(info.st_mode) & 0o077)
+        if tightened_dir:
+            data_dir.chmod(0o700)
         path = data_dir / DATA_FILE
+        if path.is_symlink():
+            raise RefusedError(f"the data file {path} is a symbolic link")
         tightened = False
         if path.exists():
             if stat.S_IMODE(path.stat().st_mode) & 0o077:
                 path.chmod(0o600)
                 tightened = True
         else:
-            os.close(os.open(path, os.O_CREAT | os.O_WRONLY, 0o600))
+            os.close(os.open(path, os.O_CREAT | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0), 0o600))
         connection = sqlite3.connect(  # autocommit: Python opens no transaction of its own
             path,
             timeout=BUSY_TIMEOUT_SECONDS,
             autocommit=True,  # pragma: no mutate
         )
-        store = cls(connection, path=path, tightened=tightened)
+        store = cls(connection, path=path, tightened=tightened, tightened_dir=tightened_dir)
         try:
             with _busy_is_locked():
                 _switch_to_wal(connection)

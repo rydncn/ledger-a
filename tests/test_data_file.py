@@ -44,6 +44,45 @@ def test_ac06_a_wider_data_file_is_tightened_and_reported(tmp_path: Path) -> Non
         assert store.tightened is False
 
 
+def test_ac06_a_wider_data_directory_is_tightened_and_reported_before_any_file_opens(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    shared.chmod(0o777)  # as a folder another user could plant a -wal file in
+    assert main(["account", "add", "current", "--currency", "GBP", "--data-dir", str(shared)]) == 0
+    assert mode(shared) == 0o700
+    assert capsys.readouterr().err == "tightened the data directory's permissions to 0700\n"
+    assert main(["account", "list", "--data-dir", str(shared)]) == 0
+    assert capsys.readouterr().err == ""
+
+
+def test_ac06_a_data_directory_that_belongs_to_another_user_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    theirs = tmp_path / "theirs"
+    theirs.mkdir(mode=0o700)
+    monkeypatch.setattr("os.geteuid", lambda: theirs.stat().st_uid + 1)  # as if it were theirs
+    assert main(["account", "list", "--data-dir", str(theirs)]) == 1
+    captured = capsys.readouterr()
+    assert captured.err == f"the data directory {theirs} belongs to another user\n"
+    assert list(theirs.iterdir()) == []
+
+
+def test_ac06_a_data_file_that_is_a_symbolic_link_is_refused(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(mode=0o700)
+    elsewhere = tmp_path / "elsewhere"
+    (data_dir / "tally.sqlite").symlink_to(elsewhere)  # dangling: the open would create it
+    assert main(["account", "list", "--data-dir", str(data_dir)]) == 1
+    assert (
+        capsys.readouterr().err == f"the data file {data_dir / 'tally.sqlite'} is a symbolic link\n"
+    )
+    assert not elsewhere.exists()
+
+
 def test_the_schema_holds_accounts_imports_and_transactions_once_per_account(
     tmp_path: Path,
 ) -> None:

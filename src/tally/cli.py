@@ -225,6 +225,8 @@ def build_parser() -> argparse.ArgumentParser:
 def open_store(args: argparse.Namespace, config: Config) -> Store:
     """Open the data file where the flag, the variable or the configuration puts it."""
     store = Store.open(data_dir_for(args.data_dir, config))
+    if store.tightened_dir:
+        print("tightened the data directory's permissions to 0700", file=sys.stderr)
     if store.tightened:
         print("tightened the data file's permissions to 0600", file=sys.stderr)
     return store
