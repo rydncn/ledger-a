@@ -57,6 +57,7 @@ SAVINGS = [
     Transaction(2, "2026-10-15", "TRANSFER TO CURRENT", -50000, "ofx:2026101501"),
 ]
 UTF8_HEADER = SGML_HEADER.replace("USASCII", "UTF-8")
+GOOD_READ = Transaction(1, "2026-10-01", "GOOD", -100, "ofx:F1")
 GOOD = "<TRNTYPE>DEBIT<DTPOSTED>20261001<TRNAMT>-1.00<FITID>F1<NAME>GOOD"
 
 
@@ -552,3 +553,125 @@ def test_a_file_that_vanished_between_the_first_bytes_and_the_read_is_refused(
     tmp_path: Path,
 ) -> None:
     assert refusal(tmp_path / "gone.ofx").startswith("cannot read the statement file: No such file")
+
+
+# What the slice 3 mutation run found untested: each test below names the behaviour it pins.
+
+
+def padded_to_chunk(prefix: str, before: str) -> str:
+    """``prefix``, a comment and ``before``, exactly one 64 KB chunk long (ASCII)."""
+    pad = 65_536 - len(prefix) - len(before) - len("<!---->")
+    return prefix + "<!--" + "p" * pad + "-->" + before
+
+
+def test_a_file_is_decoded_to_its_last_byte_in_its_named_encoding(tmp_path: Path) -> None:
+    truncated = (UTF8_HEADER + statement(GOOD)).encode() + b"\xc3"
+    assert refusal(ofx_file(tmp_path, truncated)) == "not a text file: not valid utf-8"
+    bom = b"\xef\xbb\xbf" + XML_SAVINGS.encode() + b"\xff"
+    assert refusal(ofx_file(tmp_path, bom, "bom.ofx")) == "not a text file: not valid utf-8"
+    bare = b"<OFX>" + statement(GOOD).encode() + b"\xff"
+    assert refusal(ofx_file(tmp_path, bare, "bare.ofx")) == "not a text file: not valid utf-8"
+    odd = SGML_HEADER.replace("1252", "\xe91252").encode("latin-1") + statement(GOOD).encode()
+    assert refusal(ofx_file(tmp_path, odd, "odd.ofx")) == (
+        "not a text file: CHARSET is not 1252, ISO-8859-1 or NONE"
+    )
+    colon = SGML_HEADER.replace("1252", "1252:X") + statement(GOOD)
+    assert refusal(ofx_file(tmp_path, colon, "colon.ofx")) == (
+        "not a text file: CHARSET is not 1252, ISO-8859-1 or NONE"
+    )
+
+
+def test_the_header_is_only_what_comes_before_the_first_tag(tmp_path: Path) -> None:
+    leaves = "<FITID>F1<DTPOSTED>20261001<TRNAMT>1<NAME>€\r\nENCODING:UTF-8\r\n"  # € is 0x80
+    path = ofx_file(tmp_path, (SGML_HEADER + statement(leaves)).encode("cp1252"))
+    (transaction,) = read_all(path)
+    assert isinstance(transaction, Transaction)
+    assert transaction.description == "€\r\nENCODING:UTF-8"
+    spaced = b"\r\n  <?xml version='1.0' encoding='ISO-8859-1'?>" + statement(
+        "<FITID>F1<DTPOSTED>20261001<TRNAMT>1<NAME>\xa3"
+    ).encode("latin-1")
+    (latin,) = read_all(ofx_file(tmp_path, spaced, "x.ofx"))
+    assert isinstance(latin, Transaction)
+    assert latin.description == "£"
+
+
+def test_a_large_file_is_read_in_chunks(tmp_path: Path) -> None:
+    path = ofx_file(tmp_path, SGML_HEADER + "<OFX>" + ("<A>" + " " * 1000) * 20_000 + "</OFX>")
+    assert path.stat().st_size > 20_000_000
+    tracemalloc.start()
+    try:
+        assert read_all(path) == []
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert peak < 8 * 1024 * 1024
+
+
+def test_markup_split_across_chunks_is_read_whole(tmp_path: Path) -> None:
+    prefix = SGML_HEADER + "<OFX><NAME>"
+    doctype = prefix + "q" * (65_536 - 5 - len(prefix)) + "<!DOCTYPE OFX>" + statement(GOOD)
+    assert refusal(ofx_file(tmp_path, doctype)) == DOCTYPE
+    no_newline = ofx_file(tmp_path, XML_SAVINGS.rstrip(), "end.ofx")
+    assert no_newline.read_bytes().endswith(b"</OFX>")
+    assert read_all(no_newline) == SAVINGS
+
+
+def test_a_tag_or_value_of_exactly_one_megabyte_on_a_chunk_boundary_is_read(
+    tmp_path: Path,
+) -> None:
+    tag = padded_to_chunk(SGML_HEADER + "<OFX>", "")
+    exact_tag = ofx_file(tmp_path, tag + "<" + "T" * (MAX_PIECE - 2) + "></OFX>")
+    assert read_all(exact_tag) == []
+    over_tag = ofx_file(tmp_path, tag + "<" + "T" * MAX_PIECE + "></OFX>", "over.ofx")
+    assert refusal(over_tag) == "not a statement: a value or tag longer than 1 MB"
+    value = padded_to_chunk(
+        SGML_HEADER + "<OFX><STMTTRN><FITID>F1<DTPOSTED>20261001<TRNAMT>1", "<NAME>"
+    )
+    (exact,) = read_all(ofx_file(tmp_path, value + "n" * MAX_PIECE + "</OFX>", "value.ofx"))
+    assert isinstance(exact, Transaction)
+    assert len(exact.description) == MAX_PIECE
+
+
+@pytest.mark.parametrize(
+    ("body", "outcomes"),
+    [
+        ("<OFX>NOT A STATEMENT", []),
+        ("<OFX><CURDEF>GBP", []),
+        (
+            statement(GOOD) + "<NAME>a trailing leaf",
+            [GOOD_READ],
+        ),
+        ("<OFX><STMTTRN/></OFX>", [Unreadable(1, "no FITID")]),
+        (
+            "<OFX><STMTTRN><FITID>F1<DTPOSTED>20261001<TRNAMT>1<NAME/>STRAY<MEMO>M</OFX>",
+            [Transaction(1, "2026-10-01", "M", 100, "ofx:F1")],
+        ),
+        (
+            "<OFX><STMTTRN><FITID>F1<DTPOSTED>20261001<TRNAMT>1<NAME>X--><!-- c --></OFX>",
+            [Transaction(1, "2026-10-01", "X-->", 100, "ofx:F1")],
+        ),
+        ('<OFX a="1" b="2"><STMTTRN>' + GOOD + "</OFX>", [GOOD_READ]),
+    ],
+)
+def test_edges_of_the_structure(
+    tmp_path: Path, body: str, outcomes: list[Transaction | Unreadable]
+) -> None:
+    assert read_all(ofx_file(tmp_path, XML_HEADER + body)) == outcomes
+
+
+def test_sixty_four_deep_is_allowed_after_an_xml_prolog_too(tmp_path: Path) -> None:
+    assert read_all(ofx_file(tmp_path, XML_HEADER + nested(64))) == []
+
+
+@pytest.mark.parametrize("tag", ["<>", "</>", "< >", "<//>"])
+def test_a_tag_with_no_name_is_refused(tmp_path: Path, tag: str) -> None:
+    """SGML reads ``<>`` as "the last element again" and XML as an error: Tally guesses neither."""
+    path = ofx_file(tmp_path, SGML_HEADER + "<OFX>" + tag + "<STMTTRN>" + GOOD + "</OFX>")
+    assert refusal(path) == "not a statement: a tag with no name"
+
+
+def test_references_to_every_storable_code_point_are_decoded(tmp_path: Path) -> None:
+    leaves = "<FITID>F1<DTPOSTED>20261001<TRNAMT>1<NAME>&#xE000;&#x10FFFF;&#xD7FF;"
+    (transaction,) = read_all(ofx_file(tmp_path, SGML_HEADER + statement(leaves)))
+    assert isinstance(transaction, Transaction)
+    assert transaction.description == "\U0010ffff퟿"

@@ -40,10 +40,11 @@ _DECLARED = frozenset({"utf-8", "cp1252", "iso8859-1", "ascii"})
 _AMOUNT = re.compile(r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)")  # OFX's one number shape
 _DATE = re.compile(r"([0-9]{4})([0-9]{2})([0-9]{2})")
 _CURRENCY = re.compile(r"[A-Za-z]{3}")
+_NAME = re.compile(r"[^\s/]+")  # a tag's name: its first word, without the slashes
 _ENTITY = re.compile(r"&(?:#([0-9]{1,7})|#[xX]([0-9A-Fa-f]{1,6})|(lt|gt|amp|quot|apos|nbsp));")
 _NAMED = {"lt": "<", "gt": ">", "amp": "&", "quot": '"', "apos": "'", "nbsp": "\xa0"}
 _XML_ENCODING = re.compile(rb"""<\?xml[^>]*?\sencoding\s*=\s*["']([A-Za-z0-9._-]{1,40})["']""")
-_CHARSETS = {"1252": "cp1252", "NONE": "cp1252", "ISO-8859-1": "latin-1", "8859-1": "latin-1"}
+_CHARSETS = {b"1252": "cp1252", b"NONE": "cp1252", b"ISO-8859-1": "latin-1", b"8859-1": "latin-1"}
 
 
 def _encoding(head: bytes, *, sgml: bool) -> str:
@@ -55,7 +56,7 @@ def _encoding(head: bytes, *, sgml: bool) -> str:
             fields[key.strip().upper()] = value.strip().upper()
         if fields.get(b"ENCODING") in {b"UTF-8", b"UNICODE"}:  # OFX 1.0.2 wrote UNICODE
             return "utf-8"
-        charset = fields.get(b"CHARSET", b"NONE").decode("ascii", "replace")
+        charset = fields.get(b"CHARSET", b"NONE")
         if charset not in _CHARSETS:
             raise NotAStatementError("not a text file: CHARSET is not 1252, ISO-8859-1 or NONE")
         return _CHARSETS[charset]
@@ -65,7 +66,8 @@ def _encoding(head: bytes, *, sgml: bool) -> str:
     if declared is None:
         return "utf-8"
     try:
-        name = codecs.lookup(declared[1].decode("ascii")).name
+        # no mutate: codec names are case-insensitive, so "ASCII" is the same codec
+        name = codecs.lookup(declared[1].decode("ascii")).name  # pragma: no mutate
     except LookupError:
         raise NotAStatementError("not a text file: the declared encoding is unknown") from None
     # The encodings OFX files use. Many others write "<OFX>" as ASCII and still decode to
@@ -96,7 +98,9 @@ def _decoded(handle: BinaryIO, head: bytes, encoding: str) -> Iterator[str]:
 
 def _markup_end(buffer: str, lt: int, *, end_of_file: bool, sgml: bool) -> int:
     """Where the markup starting at ``lt`` ends, or -1 when the rest has not been read."""
-    if len(buffer) - lt < len("<!DOCTYPE") and not end_of_file:
+    # no mutate: waiting for one more chunk when exactly nine characters are there is harmless
+    short = len(buffer) - lt < len("<!DOCTYPE")  # pragma: no mutate
+    if short and not end_of_file:
         return -1
     head = buffer[lt : lt + len("<!DOCTYPE")]
     if head.startswith("<!--"):
@@ -106,7 +110,8 @@ def _markup_end(buffer: str, lt: int, *, end_of_file: bool, sgml: bool) -> int:
             raise NotAStatementError(
                 "not a statement: a processing instruction, which SGML never holds"
             )
-        close, width = buffer.find("?>", lt + 2), 2
+        # no mutate: searching from lt + 3 differs only for "<??>", which has no target
+        close, width = buffer.find("?>", lt + 2), 2  # pragma: no mutate
     elif head.startswith("<!"):
         if head.upper() == "<!DOCTYPE":
             raise NotAStatementError(DOCTYPE)
@@ -122,11 +127,11 @@ def _pieces(chunks: Iterable[str], *, sgml: bool) -> Iterator[tuple[bool, str]]:
     Comments and XML processing instructions (the prolog, ``<?OFX ...?>``) are skipped,
     and the text either side of one is one run, as an XML parser reads it.
     """
-    buffer = run = ""
+    buffer = run = ""  # pragma: no mutate (text before the first tag is never read)
     for chunk in chain(chunks, [""]):
         end_of_file = not chunk
         buffer += chunk
-        start = 0
+        start = 0  # pragma: no mutate (find and slicing read None as 0)
         while (lt := buffer.find("<", start)) != -1:
             run += buffer[start:lt]
             start = lt
@@ -163,7 +168,7 @@ def _reference(match: re.Match[str]) -> str:
 
 def _unescape(text: str) -> str:
     """The five XML entities, ``&nbsp;`` and numeric references; any other ``&`` is text."""
-    return _ENTITY.sub(_reference, text) if "&" in text else text
+    return _ENTITY.sub(_reference, text)
 
 
 def _day(text: str) -> str | None:
@@ -209,8 +214,9 @@ class _Reader:
         self.stack: list[str] = []
         self.pending: str | None = None  # an open tag not yet known to be a leaf or aggregate
         self.transaction: dict[str, str] | None = None  # the open STMTTRN's leaves
-        self.started = False
-        self.ended = False  # </OFX> has been met: a real parser reads nothing after it
+        # no mutate (both): None is as false as False
+        self.started = False  # pragma: no mutate
+        self.ended = False  # pragma: no mutate  (</OFX> has been met: nothing is read after it)
         self.statements = 0
         self.position = 0
         self.ready: list[Transaction | Unreadable] = []
@@ -219,8 +225,10 @@ class _Reader:
         inner = markup[1:-1].strip()
         closing = inner.startswith("/")
         empty = inner.endswith("/")
-        words = inner.strip("/").split(maxsplit=1)
-        name = words[0].upper() if words else ""  # SGML's names are case-insensitive
+        found = _NAME.search(inner)
+        if found is None:  # SGML's <> is "the last element again", XML's an error: neither
+            raise NotAStatementError("not a statement: a tag with no name")
+        name = found[0].upper()  # SGML's names are case-insensitive
         if not self.started:
             if closing or name != "OFX":
                 raise NotAStatementError("not a statement: the first tag is not <OFX>")
@@ -251,7 +259,6 @@ class _Reader:
     def finish(self) -> None:
         if not self.started:
             raise NotAStatementError("not a statement: the first tag is not <OFX>")
-        self.pending = None
         if self.stack:
             self._close(self.stack[0])
 
