@@ -51,6 +51,15 @@ Each task: the test first, seen to fail for the right reason, then the code, the
 ### Task 3: What mutation testing, the fresh-context review and the whole-codebase review found
 
 - **Observed by:**
+  - **The fresh-context review** found 8 findings, fixed test-first in one commit, with 18 new or changed tests seen to fail first. They are listed in the pull request and `docs/trial-log.md`: an allowlist of declared encodings, a bound on amount digits before `int()`, a transaction's own `CURRENCY`, case-insensitive names, text across comments, processing instructions refused in SGML, `ENCODING:UNICODE`, investment and loan statements, and AC20 amended for the `transaction` key.
+  - **A ruling of mine was wrong.** While writing the rulings, I claimed tags after `</OFX>` were caught by other checks. They were not: a `STMTTRN` after `</OFX>` imported. Three cases were seen to fail, then fixed; a tag after `</OFX>` now refuses the file.
+  - **Mutation testing, on the tree after those fixes:** 1,167 mutants, 48 survived, all in `importers/ofx.py`.
+    - Real gaps, now tests: a truncated UTF-8 character at the end of the file; the file read whole instead of in chunks; a non-ASCII `CHARSET`; the header taken past the first tag; a prolog after whitespace; a DOCTYPE split across the 64 KB boundary; a file ending at `</OFX>` with no newline; the 1 MB limits exactly on a chunk boundary; `<NAME/>` and `<STMTTRN/>`; a leaf after `</OFX>`; an open `<OFX>` at the end of the file; `-->` just before a comment; a tag with attributes; 64 deep after an XML prolog; `&#xE000;` and `&#x10FFFF;`.
+    - Behaviour change: a tag with no name (`<>`, `</>`) was read as a nameless aggregate. SGML reads `<>` as "the last element again" and XML as an error, so it now refuses the file.
+    - Removed instead of ruled on: the `&` fast path in `_unescape`, and a `pending = None` in `finish`.
+    - Equivalent, with `pragma: no mutate` and the reason beside the code: codec names' case; `None` for `False`; `None` for `0` as a start index; the initial text before the first tag; searching for `?>` one character later (differs only for `<??>`); and waiting for more input at exactly nine characters. The `CHARSET` decode with its codec name was replaced by comparing bytes, so it needs no pragma.
+  - **The next run:** 1,125 mutants, 1 survived. `decoder.decode(raw, final=raw)` decoded each chunk as if it were the last. The killing test splits a euro's three UTF-8 bytes across the chunk boundary. It passes on the code and fails with that mutant applied by hand. CI's mutation job reruns the whole set on the final commit.
+  - **The whole-codebase review** was not run in this session, because the budget was spent; it is the next session's first step (`docs/handoff.md`).
 
 ## Done when
 

@@ -595,6 +595,15 @@ def test_the_header_is_only_what_comes_before_the_first_tag(tmp_path: Path) -> N
     assert latin.description == "£"
 
 
+def test_a_character_split_across_two_chunks_is_read_whole(tmp_path: Path) -> None:
+    prefix = (UTF8_HEADER + "<OFX><STMTTRN><FITID>F1<DTPOSTED>20261001<TRNAMT>1<NAME>").encode()
+    content = prefix + b"n" * (65_536 - 1 - len(prefix)) + "€</OFX>".encode()
+    assert content[65_535:65_538] == "€".encode()  # the euro's three bytes straddle the chunk
+    (transaction,) = read_all(ofx_file(tmp_path, content))
+    assert isinstance(transaction, Transaction)
+    assert transaction.description.endswith("n€")
+
+
 def test_a_large_file_is_read_in_chunks(tmp_path: Path) -> None:
     path = ofx_file(tmp_path, SGML_HEADER + "<OFX>" + ("<A>" + " " * 1000) * 20_000 + "</OFX>")
     assert path.stat().st_size > 20_000_000
