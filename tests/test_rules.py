@@ -18,6 +18,9 @@ AC26_RULES: list[dict[str, object]] = [
 ]
 
 
+HIDDEN = "name must not contain control characters or line breaks"
+
+
 def entry(description: str, minor: int, account: str = "current", scale: int = 2) -> Entry:
     return Entry(1, "2026-10-01", account, "GBP", scale, description, minor)
 
@@ -199,8 +202,8 @@ def test_ac28_a_rule_with_no_conditions_has_none_to_name() -> None:
         ([{"name": "A", "amount_below": -100}], "rules[1]: amount_below must be a string"),
         ([{"name": "A", "account": ["x"]}], "rules[1]: account must be a string"),
         ([{"name": "  "}], "rules[1]: name must not be empty"),
-        ([{"name": "A\x1b[31m"}], "rules[1]: name must not contain control characters or line breaks"),
-        ([{"name": "A" + chr(0x202E)}], "rules[1]: name must not contain control characters or line breaks"),
+        ([{"name": "A\x1b[31m"}], f"rules[1]: {HIDDEN}"),
+        ([{"name": "A" + chr(0x202E)}], f"rules[1]: {HIDDEN}"),
         (
             [{"name": "A", "description_contains": ""}],
             "rules[1]: description_contains must not be empty",
