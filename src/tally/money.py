@@ -6,6 +6,7 @@ the data file stores (ADR 0004). Parsing goes from text straight to
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -76,8 +77,9 @@ def parse_amount(text: str, decimal: str, thousands: str) -> Decimal:
     if s and s[0] in _SIGNS:
         negations += s[0] == "-"
         s = s[1:]
-    # A currency symbol: one character that is not a digit, a letter, a sign or a separator.
-    if s and not s[0].isalnum() and s[0] not in _SIGNS + decimal + thousands:
+    # A currency symbol: one character Unicode calls one (Sc). Anything wider took a
+    # typographic minus (U+2212, a dash) for a symbol and made a debit a credit.
+    if s and unicodedata.category(s[0]) == "Sc":
         s = s[1:]
     if s and s[0] in _SIGNS:
         negations += s[0] == "-"
