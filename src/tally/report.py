@@ -70,13 +70,18 @@ def monthly(entries: Iterable[Entry], rules: Sequence[Rule]) -> list[Total]:
             result.rule.name if isinstance(result, Match) else None,
         )
         income, spending = sums.get(key, (0, 0))
-        if e.amount_minor > 0:
-            income += e.amount_minor
-        else:
-            spending += e.amount_minor
-        sums[key] = (income, spending)
-    ordered = sorted(sums, key=lambda k: (k[0], k[1], k[2], k[3] is None, k[3] or ""))
+        sums[key] = (income + max(e.amount_minor, 0), spending + min(e.amount_minor, 0))
+    ordered = sorted(sums, key=_uncategorised_last)
     return [Total(*key, *sums[key]) for key in ordered]
+
+
+def _uncategorised_last(key: tuple[str, str, int, str | None]) -> tuple[object, ...]:
+    """Month, currency, scale, then category name with uncategorised last.
+
+    Two keys reach the name only when both are categories: a section has one ``None``.
+    """
+    month, currency, scale, category = key
+    return (month, currency, scale, category is None, category)
 
 
 def payees(payments: Iterable[Entry], top: int) -> list[Payee]:

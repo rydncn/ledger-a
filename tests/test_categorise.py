@@ -424,7 +424,15 @@ def test_ac38_a_rules_own_text_is_replaced_on_the_terminal(
     ]
 
 
-@pytest.mark.parametrize("command", [["uncategorised"], ["explain", "4"]])
+@pytest.mark.parametrize(
+    "command",
+    [
+        ["uncategorised"],
+        ["explain", "4"],
+        ["report", "--month", "2026-10", "--format", "json"],
+        ["payees", "--month", "2026-10"],
+    ],
+)
 def test_the_data_directory_comes_from_the_configuration_too(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], command: list[str]
 ) -> None:
@@ -434,7 +442,7 @@ def test_the_data_directory_comes_from_the_configuration_too(
     code = main([*command, "--config", str(config)])
     captured = capsys.readouterr()
     assert (code, captured.err) == (0, "")
-    assert "TFL TRAVEL CH" in captured.out or "SALARY" in captured.out
+    assert any(text in captured.out for text in ("TFL TRAVEL CH", "SALARY", '"Travel"'))
     assert place.data_dir == tmp_path / "data"
 
 

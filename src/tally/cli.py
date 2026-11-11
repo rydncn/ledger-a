@@ -194,7 +194,11 @@ def build_parser() -> argparse.ArgumentParser:
     period.add_argument(
         "--to", dest="last", type=month, metavar="MONTH", help="the last month, inclusive"
     )
-    period.add_argument("--format", choices=["table", "csv", "json"], default="table")
+    period.add_argument(
+        "--format",
+        choices=["table", "csv", "json"],
+        default="table",  # pragma: no mutate (any other default also reaches the table branch)
+    )
     reporting = commands.add_parser(
         "report", parents=[period], **STRICT, help="money in and out by category, each month"
     )
@@ -366,7 +370,9 @@ def _csv_stdout() -> TextIO:
     ``\\r\\r\\n`` (AC32).
     """
     if isinstance(sys.stdout, io.TextIOWrapper):
-        sys.stdout.reconfigure(newline="")
+        # no mutate: newline=None writes \r\n as it is everywhere but Windows, which no test
+        # run here is; the Windows-style stream test kills every other change
+        sys.stdout.reconfigure(newline="")  # pragma: no mutate
     return sys.stdout
 
 
@@ -389,15 +395,13 @@ def _section(title: str, header: Sequence[str], rows: Sequence[Sequence[str]]) -
     colour = _colour()
     lines = [[printable(cell) for cell in line] for line in [header, *rows]]
     first, *rest = [max(len(line[i]) for line in lines) for i in range(len(header))]
-    return [printable(title)] + [
-        "  ".join(
-            [
-                line[0].ljust(first),
-                *(_right(c, w, colour=colour) for c, w in zip(line[1:], rest, strict=True)),
-            ]
-        )
-        for line in lines
-    ]
+
+    def joined(line: list[str]) -> str:
+        # no mutate: every line has the header's number of cells, so strict changes nothing
+        pairs = zip(line[1:], rest, strict=True)  # pragma: no mutate
+        return "  ".join([line[0].ljust(first), *(_right(c, w, colour=colour) for c, w in pairs)])
+
+    return [printable(title), *map(joined, lines)]
 
 
 def _period(args: argparse.Namespace) -> tuple[str, str]:

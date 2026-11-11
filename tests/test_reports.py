@@ -195,6 +195,10 @@ def test_ac31_a_range_of_months_and_the_payees_taking_the_most(
         },
     ]
     assert len(as_json(place, "payees", *period)) == 7  # every one, under the default of 10
+    one_month = ("--from", "2026-10", "--to", "2026-10")  # a range of one month is allowed
+    assert as_json(place, "report", *one_month) == as_json(place, "report", *OCTOBER)
+    add(place, "savings", *[("2026-10-25", f"SHOP {n:02}", -1) for n in range(12)])
+    assert sum(r["currency"] == "GBP" for r in as_json(place, "payees", *OCTOBER)) == 10
 
 
 def test_ac31_the_payees_table(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
