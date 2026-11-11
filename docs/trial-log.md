@@ -128,4 +128,18 @@ The security-audit skill in full audit mode, profile `standard`, on the whole re
 
 ## Whole-codebase review 2
 
-In progress.
+A subagent in a worktree of `2a803eb` without the plans, the handoff or the trial records, given `docs/review-brief.md`, `CLAUDE.md`, the design, the brief and the ADRs, the parsers named and the surfaces that must agree; every finding proved with a probe. 13 findings: 3 must-fix, 10 should-fix (2 of them for a person). Given the audit's findings only after it had reported: it had found 5 of its 13 that the audit also found (R2, R3, R4, R5, R7), and missed the audit's A1, A2, A8, A9 and three hardening notes.
+
+- R1, must fix, fixed: a typographic minus (U+2212), an en or em dash or a fullwidth hyphen before an amount was taken for a currency symbol and dropped, so `−950.00` read as +950.00, silently. Only Unicode `Sc` is a symbol now. Not found by the audit.
+- R2, must fix, fixed as the audit's A4: a pattern searches the first 1,000 characters. Ruled against the review's alternative (refusing long descriptions at import): the matcher is where the cost is, and nothing stored changes.
+- R7, must fix, fixed as the audit's A3.
+- R3, should fix, fixed as the audit's A5, A6 and A7.
+- R4, should fix, fixed: an account or rule name holding U+2028 or U+2029 passed the C* check and then printed differently in the table and the CSV; names now refuse what `printable` would change, and every print of a name goes through it.
+- R5, should fix, for a person, decided: `forget` left descriptions in free pages; `PRAGMA secure_delete=ON`, and AC3 says so.
+- R6, should fix, fixed: the handoff's broken pipe.
+- R8, should fix, fixed: a CSV `%Y%m%d` layout read `2026111` as 1 November; a format with no separators reads only its own width.
+- R9, for a person, decided: ADR 0011 (amounts in the currency's own places).
+- R10, should fix, fixed: a rule named `uncategorised` is refused.
+- R11, should fix, ruled: `uncategorised` collects every row so a failure part way prints nothing (AC34); the owner's open question already.
+- R12, should fix, part fixed: `gh pr create` and `ready` and `gh api` writes ask first; a plain push of a named branch still does not, because an unattended session would stall on its own pushes, and `CLAUDE.md` now says exactly what asks instead of "every push". Pinning the marketplace is the owner's.
+- R13, should fix, for the owner: commands that only read create an empty data file, so a mistyped `--data-dir` reports nothing; refusing it changes the command line's contract.
