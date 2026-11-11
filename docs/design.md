@@ -159,7 +159,7 @@ Each becomes a test named `test_acNN_...`. "Refused" always means: a message on 
 #### AC13. Rows that cannot be read are reported by line and reason, the rest imported
 - **Given** a file whose line 3 has a date `31/02/2026`, line 4 an amount `twelve`, and line 5 too few columns
 - **When** imported
-- **Then** the other rows are added; standard error lists `line 3: date does not match %d/%m/%Y`, `line 4: amount is not a number`, `line 5: expected 5 columns, found 3`, none quoting the row's content; exit 0; the summary says 3 unreadable. With 500 unreadable rows, standard error lists the first 50 and then `and 450 more`; the JSON form (AC20) lists them all
+- **Then** the other rows are added; standard error lists `line 3: date does not match %d/%m/%Y`, `line 4: amount is not a number`, `line 5: expected 5 columns, found 3`, none quoting the row's content; exit 0; the summary says 3 unreadable. With 500 unreadable rows, standard error lists the first 50 and then `and 450 more`; the JSON form (AC20) lists the first 1,000 and counts them all, so a file of nothing but unreadable rows costs bounded memory. A record that an open quote carries over several lines is reported on the line it starts on, with `in a record that runs to line N`
 
 #### AC14. The same file twice adds nothing
 - **Given** the current-account sample imported
@@ -194,7 +194,7 @@ Each becomes a test named `test_acNN_...`. "Refused" always means: a message on 
 #### AC20. The import summary is also machine-readable
 - **Given** any import
 - **When** run with `--format json`
-- **Then** standard output is one JSON object `{"account", "file", "added", "duplicates", "unreadable": [{"line", "reason"}]}` and nothing else, where an OFX file's entries carry `"transaction"` (its position, as AC25 counts it) in place of `"line"`; the human form goes to standard output without `--format`
+- **Then** standard output is one JSON object `{"account", "file", "added", "duplicates", "unreadable_count", "unreadable": [{"line", "reason"}]}`, with at most 1,000 entries in `unreadable` (AC13), and nothing else, where an OFX file's entries carry `"transaction"` (its position, as AC25 counts it) in place of `"line"`; the human form goes to standard output without `--format`
 
 #### AC40. A monstrous field does not crash the import
 - **Given** a CSV with a 50 MB single quoted field on line 4
@@ -231,7 +231,7 @@ Each becomes a test named `test_acNN_...`. "Refused" always means: a message on 
 #### AC39. An OFX XML file with a DOCTYPE or entities is refused
 - **Given** an XML OFX file with a `<!DOCTYPE` declaration (external entity, or a billion-laughs expansion)
 - **When** imported
-- **Then** refused: `the file declares a DOCTYPE, which statements never do`, exit 1, by a check on the first bytes before any XML parser runs (observed: the message is the DOCTYPE one, not a parse or file error, and the entity's `SYSTEM` path names a FIFO the test created, which would block the test if anything opened it)
+- **Then** refused: `the file declares a DOCTYPE, which statements never do`, exit 1, by Tally's scanner wherever the declaration appears, with no XML parser anywhere (ADR 0009) (observed: the message is the DOCTYPE one, not a parse or file error, and the entity's `SYSTEM` path names a FIFO the test created, which would block the test if anything opened it)
 
 #### AC41. Tags nested or repeated beyond reason are refused
 - **Given** an SGML OFX file with 10,000 nested opening tags, and one with `STMTTRN` elements missing `FITID` entirely

@@ -257,6 +257,22 @@ def test_a_data_file_that_is_not_a_database_is_refused_in_one_line(
     assert captured.err.count("\n") == 1
 
 
+def test_ac34_a_data_file_damaged_after_it_opened_is_refused_in_one_line(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with Store.open(tmp_path) as store:
+        for n in range(200):  # enough rows that the accounts table has pages of its own
+            store.add_account(f"account {n:03d} " + "x" * 200, "GBP")
+    data_file = tmp_path / "tally.sqlite"
+    content = bytearray(data_file.read_bytes())
+    content[8192:] = b"\xff" * (len(content) - 8192)  # the header and schema survive
+    data_file.write_bytes(bytes(content))
+    code = main(["account", "list", "--data-dir", str(tmp_path)])
+    captured = capsys.readouterr()
+    assert (code, captured.out) == (1, "")
+    assert captured.err == "the data file failed: database disk image is malformed\n"
+
+
 def test_ac07_a_copy_waits_for_a_fresh_file_another_copy_is_still_creating(tmp_path: Path) -> None:
     """Switching a brand-new file to WAL while another copy holds it is SQLITE_BUSY without
     the busy handler (SQLite's deadlock avoidance), so the wait has to be Tally's own."""

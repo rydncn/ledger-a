@@ -67,6 +67,10 @@ jobs:
       # when it finds nothing to scan.
       - name: Rule checks
         run: node scripts/check-rules.js scripts/rules.json
+      # The same boundaries read from the syntax tree: every import under src/ on the
+      # allowed list, no float literal (an alias or a from-import passes a word check).
+      - name: Imports
+        run: uv run python scripts/check_imports.py
 
   tests:
     name: Tests

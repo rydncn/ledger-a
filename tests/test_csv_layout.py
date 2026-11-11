@@ -105,14 +105,10 @@ def test_ac43_the_sample_layouts_build_with_their_defaults() -> None:
         ({**BANK, "delimiter": "\n"}, "delimiter cannot be a quote or a line ending"),
         ({**BANK, "delimiter": "\r"}, "delimiter cannot be a quote or a line ending"),
         ({**BANK, "delimiter": '"'}, "delimiter cannot be a quote or a line ending"),
-        (
-            {**BANK, "encoding": "utf-16"},
-            'encoding "utf-16" is not supported: its text holds NUL bytes',
-        ),
-        (
-            {**BANK, "encoding": "UTF-32-LE"},
-            'encoding "UTF-32-LE" is not supported: its text holds NUL bytes',
-        ),
+        *[
+            ({**BANK, "encoding": name}, f'encoding "{name}" is not supported')
+            for name in ("utf-16", "UTF-32-LE", "utf-7", "unicode_escape", "raw_unicode_escape")
+        ],
     ],
 )
 def test_ac43_an_invalid_layout_names_itself_and_the_problem(
@@ -226,7 +222,7 @@ def test_ac13_rows_that_cannot_be_read_are_reported_by_line_and_reason(tmp_path:
         Unreadable(7, "no amount"),
         Unreadable(8, "amount has more than 2 decimal places"),
         Transaction(
-            11,
+            10,  # the line the record starts on
             "2026-10-01",
             "EIGHTH\r\nACROSS LINES",
             -200,
@@ -359,6 +355,30 @@ def test_ac40_a_monstrous_field_is_one_unreadable_row_and_costs_bounded_memory(
     assert peak < 32 * 1024 * 1024
 
 
+def test_ac13_an_unclosed_quote_is_reported_where_it_opened_and_how_far_it_ran(
+    tmp_path: Path,
+) -> None:
+    path = bank_file(
+        tmp_path,
+        "01/10/2026,FIRST,1.00,,",
+        '02/10/2026,"OPENED HERE,2.00,,',
+        "03/10/2026,SWALLOWED,3.00,,",
+        "04/10/2026,SWALLOWED,4.00,,",
+        '05/10/2026,CLOSED",5.00',
+        "06/10/2026,AFTER,6.00,,",
+    )
+    assert read_bank(path)[1:] == [
+        Unreadable(3, "expected 5 columns, found 3, in a record that runs to line 6"),
+        Transaction(7, "2026-10-06", "AFTER", -600, "csv:2026-10-06|-600|after|1"),
+    ]
+
+
+def test_ac13_a_date_in_digits_that_are_not_ascii_is_unreadable(tmp_path: Path) -> None:
+    arabic = "".join(chr(0x0660 + int(c)) if c.isdigit() else c for c in "01/10/2026")
+    path = bank_file(tmp_path, f"{arabic},X,1.00,,")
+    assert read_bank(path) == [Unreadable(2, "date does not match %d/%m/%Y")]
+
+
 def test_ac40_the_field_limit_is_exactly_one_megabyte(tmp_path: Path) -> None:
     path = bank_file(
         tmp_path,
@@ -373,13 +393,15 @@ def test_ac40_the_field_limit_is_exactly_one_megabyte(tmp_path: Path) -> None:
     # The csv module stops at the line where the field passed 1 MB; the rest of that field's
     # lines are each a short row of their own, bounded in cost and reported like any other.
     assert isinstance(outcomes[2], Unreadable)
-    assert outcomes[2].reason == "field longer than 1 MB"
-    assert 4 < outcomes[2].line < 400_004
+    assert outcomes[2].line == 4
+    reason, _, end = outcomes[2].reason.rpartition(" ")
+    assert reason == "field longer than 1 MB, in a record that runs to line"
+    assert 4 < int(end) < 400_004
     assert {o.reason for o in outcomes[3:] if isinstance(o, Unreadable)} == {
         "expected 5 columns, found 1"
     }
     assert outcomes[-1].line == 400_004
-    assert len(outcomes) == 3 + 400_004 - outcomes[2].line
+    assert len(outcomes) == 3 + 400_004 - int(end)
 
 
 def test_the_briefs_unquoted_formula_cell_is_six_columns_as_any_csv_reader_sees_it(

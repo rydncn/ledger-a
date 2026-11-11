@@ -23,7 +23,7 @@ from itertools import chain
 from pathlib import Path
 from typing import BinaryIO
 
-from tally.importers import NotAStatementError, Transaction, Unreadable
+from tally.importers import ENCODINGS, NotAStatementError, Transaction, Unreadable
 from tally.money import NOT_A_NUMBER, AmountError, to_minor
 
 CHUNK = 65_536
@@ -36,7 +36,6 @@ log = logging.getLogger(__name__)
 # A transaction keeps only the leaves it reads, so other leaves cost nothing.
 _LEAVES = frozenset({"FITID", "DTPOSTED", "TRNAMT", "NAME", "MEMO"})
 _STATEMENTS = frozenset({"STMTRS", "CCSTMTRS", "INVSTMTRS", "LOANSTMTRS"})
-_DECLARED = frozenset({"utf-8", "cp1252", "iso8859-1", "ascii"})
 _AMOUNT = re.compile(r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)")  # OFX's one number shape
 _DATE = re.compile(r"([0-9]{4})([0-9]{2})([0-9]{2})")
 _CURRENCY = re.compile(r"[A-Za-z]{3}")
@@ -72,7 +71,7 @@ def _encoding(head: bytes, *, sgml: bool) -> str:
         raise NotAStatementError("not a text file: the declared encoding is unknown") from None
     # The encodings OFX files use. Many others write "<OFX>" as ASCII and still decode to
     # what SQLite cannot store: UTF-7 and the escape codecs give lone surrogates.
-    if name not in _DECLARED:
+    if name not in ENCODINGS:
         raise NotAStatementError(f'not a text file: encoding "{name}" is not supported')
     return name
 

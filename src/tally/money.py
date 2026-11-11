@@ -89,10 +89,11 @@ def parse_amount(text: str, decimal: str, thousands: str) -> Decimal:
         raise AmountError(NOT_A_NUMBER)
 
     whole, sep, fraction = s.partition(decimal)
-    grouped = re.fullmatch(rf"\d{{1,3}}(?:{re.escape(thousands)}\d{{3}})+", whole)
-    if not (grouped or re.fullmatch(r"\d*", whole)):
+    # [0-9], never \d: \d matches Arabic-Indic and fullwidth digits, which Decimal reads too.
+    grouped = re.fullmatch(rf"[0-9]{{1,3}}(?:{re.escape(thousands)}[0-9]{{3}})+", whole)
+    if not (grouped or re.fullmatch(r"[0-9]*", whole)):
         raise AmountError(NOT_A_NUMBER)
-    if sep and not re.fullmatch(r"\d+", fraction):
+    if sep and not re.fullmatch(r"[0-9]+", fraction):
         raise AmountError(NOT_A_NUMBER)
     digits = whole.replace(thousands, "")
     # Built as text, never by arithmetic: Decimal's context would round at 28 digits.
@@ -120,4 +121,5 @@ def to_minor(amount: Decimal, scale: int) -> int:
 
 def from_minor(minor: int, scale: int) -> Decimal:
     """Integer minor units back to an exact amount with ``scale`` decimal places."""
-    return Decimal(minor).scaleb(-scale).quantize(Decimal(10) ** -scale)
+    digits = str(abs(minor)).rjust(scale + 1, "0")  # 5 at scale 2 is 0.05
+    return Decimal((int(minor < 0), tuple(map(int, digits)), -scale))  # from digits: exact

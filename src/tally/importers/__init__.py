@@ -11,6 +11,10 @@ from pathlib import Path
 from typing import Literal
 
 Kind = Literal["csv", "ofx-sgml", "ofx-xml"]
+# The codecs a statement may be read in, by Python's canonical name. Many others write ASCII
+# as ASCII and still decode to what SQLite cannot store (UTF-7 and the escape codecs give lone
+# surrogates) or hold NUL bytes (UTF-16): allowed by name, never by a probe.
+ENCODINGS = frozenset({"utf-8", "cp1252", "iso8859-1", "ascii"})
 
 
 class NotAStatementError(Exception):

@@ -139,6 +139,28 @@ options:
 
 
 @pytest.mark.parametrize(
+    "argv",
+    [
+        ["account", "add", "c", "--cur", "GBP"],
+        ["account", "list", "--form", "json"],
+        ["account", "forget", "c", "--ye"],
+        ["import", "--acc", "c", "--lay", "bank", "x.csv"],
+        ["account", "list", "--data", "d"],
+        ["--vers"],
+    ],
+)
+def test_an_abbreviated_option_is_a_usage_error(
+    capsys: pytest.CaptureFixture[str], argv: list[str]
+) -> None:
+    """Every prefix argparse accepts would be part of the command line's shape."""
+    with pytest.raises(SystemExit) as raised:
+        main(argv)
+    captured = capsys.readouterr()
+    assert (raised.value.code, captured.out) == (2, "")
+    assert "unrecognized arguments" in captured.err or "required" in captured.err
+
+
+@pytest.mark.parametrize(
     ("argv", "expected"),
     [
         (["account"], ACCOUNT_HELP),
