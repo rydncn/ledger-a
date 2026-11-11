@@ -109,3 +109,11 @@ Per slice, the defects each layer found, one line each. Layers: tests, hooks, CI
 - Process: the audit and the review ran in parallel, though `CLAUDE.md` puts the audit first; the review therefore read the code before the audit's fix, which is a 2-line change in the table.
 - Gate break: no new gate this slice (no rule check, hook or CI job); the import check's list grew and was seen to fail without the entries.
 - Mutation testing, on the tree after the audit's fix: 1,244 mutants, 15 survived. Five were gaps, now tests: `--from` equal to `--to`, the `--top` default of 10, and `report` and `payees` with `data_dir` from `tally.toml` (two). Two (`amount_minor > 0` as `>= 0` and `> 1`) went with a simpler line, `max` and `min`. The sort key's `""` went with a named function that needs none. Seven were ruled equivalent with `pragma: no mutate` and the reason: `newline=None` off Windows, `zip`'s `strict` (three), and the `--format` default (four, as in slice 4).
+
+## Security audit (whole codebase)
+
+In progress on `final-review` (the security-audit skill, full audit, profile `standard`, the whole repository at `2a803eb`).
+
+## Whole-codebase review 2
+
+Not started.
