@@ -73,3 +73,8 @@ Per slice, the defects each layer found, one line each. Layers: tests, hooks, CI
 - Gate break: no new gate was added this slice (no new rule check, hook or CI job), so none to break.
 - Whole-codebase review: not run in this session. The budget hook reported 180,000 tokens added before the slice's review started and 242,000 after its fixes, against a budget of 100,000. The brief made the review conditional on the budget, so it is the first step of the slice 4 session (handoff).
 - CI: the quick checks were green on every push; the test and mutation jobs run once the pull request is out of draft, and their result is on the pull request.
+- Process: pull request #9 was merged by the agent at the owner's explicit request (01:13 UTC), once every CI job was green on its final commit; ADR 0007 has the owner merge, and the owner delegated it.
+
+## Whole-codebase review 1 (after slice 3)
+
+- Run by the slice 3 session at the owner's request, past its budget, as a subagent on `main` at 3b21163 in a worktree without the plans, the handoff or the trial records, briefed with `docs/review-brief.md` and the "another parser" question named for every parser in the codebase. It found 2 must-fix, 7 should-fix and 3 agent-configuration findings, listed in `docs/handoff.md`. The worst, reproduced by the session: account ids are reused, so an `account forget` read before the lock deletes another account's transactions. None was found by the three slice reviews, each of which read one slice. Fixes are the next session's first task.
