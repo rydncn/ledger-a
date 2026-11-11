@@ -32,13 +32,13 @@ Each task: the test first, seen to fail for the right reason, then the code, the
 
 - **Test:** `tests/test_report.py`: monthly totals on the samples' entries by category and currency, income and spending apart; 0.10, 0.20 and −0.30 net to exactly 0.00; GBP and EUR never in one row; two amounts of 2^63 − 1 minor units sum exactly; payees ordered by money out with counts, per currency, ties by description, `top` honoured; income never counted as a payee's money out; the store's month filter inclusive at both ends.
 - **Code:** `src/tally/report.py`; `Store.entries(months)`, `Store.payments(months)`.
-- **Observed by:**
+- **Observed by:** before the code, `ModuleNotFoundError: No module named 'tally.report'` for the whole file. After `report.py` and the two store reads, 9 passed on the first run. Probed first: SQLite's `sum` over two `2**63 - 1` is `OperationalError: integer overflow`, so the sums are Python's.
 
 ### Task 2: `tally report` and `tally payees` (AC26, AC3, AC30 to AC32, AC34 to AC38)
 
 - **Test:** `tests/test_reports.py` through `main`: AC26's categories in `report --month 2026-10 --format json`; AC3's report after `account forget`; AC30's table; AC31's range and payees; AC32's hostile descriptions in `report` and `uncategorised --format csv`, round-tripped through `csv`, amounts matching `^-?[0-9]+\.[0-9]{2}$`, `\r\n`; the Windows-style stream; AC35's JSON and CSV equal to the table's rows, and `account list --format csv`; AC36's two sections; AC37's refusals with the option named and the data directory not created; AC38 for both commands; AC29 for `report`; the help screens.
-- **Code:** `cli.py`: the two commands, the period options, `_csv_writer`, `account list --format csv`.
-- **Observed by:**
+- **Code:** `cli.py`: the two commands, the period options, `_csv_stdout`, `account list --format csv`.
+- **Observed by:** before the code, all 61 tests in `tests/test_reports.py` failed with argparse's `invalid choice: 'report'`, `'payees'` or (for `account list`) `'csv'`. After it, 57 passed and 4 failed, each the test's own mistake: one space short in the hand-counted payees header (twice, the in-process and the subprocess test), the sample's `=HYPERLINK` refund also uncategorised, and `subprocess.run(text=True)` translating `\r\n` on the way in (the check now reads bytes). Then 70 passed. The Windows-style stream test was seen to fail with the `reconfigure` removed: all four CSV commands wrote `\r\r\n`. The full suite then failed only `tests/test_cli.py`'s two help screens, which now list the two commands and `--format csv` for `account list`; updated, with the two new screens and three abbreviated options. `scripts/check_imports.py` was seen to fail on `io` and `heapq` before they were added. The after-edit hook asked for `zip(strict=)` and `map(strict=)` in `_columns`, and flagged a `‮` written in a Write that arrived as the raw character again, with fullwidth and Arabic-Indic digits pasted in tests (all now `chr()`).
 
 ### Task 3: Colour (AC33)
 

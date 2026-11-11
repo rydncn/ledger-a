@@ -55,6 +55,8 @@ positional arguments:
     import         import a statement file into an account
     uncategorised  list the transactions no rule matched
     explain        say why a transaction got its category
+    report         money in and out by category, each month
+    payees         the payees taking the most money
 
 options:
   -h, --help       show this help message and exit
@@ -99,13 +101,13 @@ options:
 
 LIST_HELP = """\
 usage: tally account list [-h] [--config FILE] [--data-dir DIR]
-                          [--format {table,json}]
+                          [--format {table,csv,json}]
 
 options:
   -h, --help            show this help message and exit
   --config FILE         the tally.toml to read
   --data-dir DIR        where the data file lives
-  --format {table,json}
+  --format {table,csv,json}
 """
 
 FORGET_HELP = """\
@@ -165,6 +167,36 @@ options:
   --format {table,json}
 """
 
+REPORT_HELP = """\
+usage: tally report [-h] [--config FILE] [--data-dir DIR] [--month MONTH]
+                    [--from MONTH] [--to MONTH] [--format {table,csv,json}]
+
+options:
+  -h, --help            show this help message and exit
+  --config FILE         the tally.toml to read
+  --data-dir DIR        where the data file lives
+  --month MONTH         one month, e.g. 2026-10
+  --from MONTH          the first month, inclusive
+  --to MONTH            the last month, inclusive
+  --format {table,csv,json}
+"""
+
+PAYEES_HELP = """\
+usage: tally payees [-h] [--config FILE] [--data-dir DIR] [--month MONTH]
+                    [--from MONTH] [--to MONTH] [--format {table,csv,json}]
+                    [--top N]
+
+options:
+  -h, --help            show this help message and exit
+  --config FILE         the tally.toml to read
+  --data-dir DIR        where the data file lives
+  --month MONTH         one month, e.g. 2026-10
+  --from MONTH          the first month, inclusive
+  --to MONTH            the last month, inclusive
+  --format {table,csv,json}
+  --top N               how many per currency, 1 to 1000
+"""
+
 
 @pytest.mark.parametrize(
     "argv",
@@ -179,6 +211,9 @@ options:
         ["import", "--he"],
         ["uncategorised", "--form", "json"],
         ["explain", "1", "--form", "json"],
+        ["report", "--mon", "2026-10"],
+        ["payees", "--month", "2026-10", "--to", "2026-10", "--fro", "2026-09"],
+        ["payees", "--month", "2026-10", "--t", "3"],
     ],
 )
 def test_an_abbreviated_option_is_a_usage_error(
@@ -203,6 +238,8 @@ def test_an_abbreviated_option_is_a_usage_error(
         (["import"], IMPORT_HELP),
         (["uncategorised"], UNCATEGORISED_HELP),
         (["explain"], EXPLAIN_HELP),
+        (["report"], REPORT_HELP),
+        (["payees"], PAYEES_HELP),
     ],
 )
 def test_each_account_help_screen_is_whole(
