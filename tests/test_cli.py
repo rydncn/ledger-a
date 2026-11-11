@@ -51,12 +51,14 @@ See where your money goes, from your bank's statement files.
 
 positional arguments:
   <command>
-    account   add, list and forget accounts
-    import    import a statement file into an account
+    account        add, list and forget accounts
+    import         import a statement file into an account
+    uncategorised  list the transactions no rule matched
+    explain        say why a transaction got its category
 
 options:
-  -h, --help  show this help message and exit
-  --version   show program's version number and exit
+  -h, --help       show this help message and exit
+  --version        show program's version number and exit
 """
 
 
@@ -137,6 +139,32 @@ options:
   --verbose             say what is being read, on standard error
 """
 
+UNCATEGORISED_HELP = """\
+usage: tally uncategorised [-h] [--config FILE] [--data-dir DIR]
+                           [--format {table,csv,json}]
+
+options:
+  -h, --help            show this help message and exit
+  --config FILE         the tally.toml to read
+  --data-dir DIR        where the data file lives
+  --format {table,csv,json}
+"""
+
+EXPLAIN_HELP = """\
+usage: tally explain [-h] [--config FILE] [--data-dir DIR]
+                     [--format {table,json}]
+                     id
+
+positional arguments:
+  id                    the transaction's id, as listed
+
+options:
+  -h, --help            show this help message and exit
+  --config FILE         the tally.toml to read
+  --data-dir DIR        where the data file lives
+  --format {table,json}
+"""
+
 
 @pytest.mark.parametrize(
     "argv",
@@ -149,6 +177,8 @@ options:
         ["--vers"],
         ["account", "--he"],
         ["import", "--he"],
+        ["uncategorised", "--form", "json"],
+        ["explain", "1", "--form", "json"],
     ],
 )
 def test_an_abbreviated_option_is_a_usage_error(
@@ -171,6 +201,8 @@ def test_an_abbreviated_option_is_a_usage_error(
         (["account", "list"], LIST_HELP),
         (["account", "forget"], FORGET_HELP),
         (["import"], IMPORT_HELP),
+        (["uncategorised"], UNCATEGORISED_HELP),
+        (["explain"], EXPLAIN_HELP),
     ],
 )
 def test_each_account_help_screen_is_whole(

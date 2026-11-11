@@ -18,12 +18,13 @@ from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 from types import TracebackType
 from typing import Self
 
 from tally.importers import Transaction, Unreadable
-from tally.money import scale_of
+from tally.money import from_minor, scale_of
 
 DATA_FILE = "tally.sqlite"
 BUSY_TIMEOUT_SECONDS = 10
@@ -80,6 +81,30 @@ class Account:
     name: str
     currency: str
     scale: int
+
+
+@dataclass(frozen=True)
+class Entry:
+    """A stored transaction with its account's name and currency: what rules and reports read."""
+
+    id: int
+    date: str
+    account: str
+    currency: str
+    scale: int
+    description: str
+    amount_minor: int
+
+    @property
+    def amount(self) -> Decimal:
+        return from_minor(self.amount_minor, self.scale)
+
+
+_ENTRIES = (
+    "SELECT t.id, t.date, a.name, a.currency, a.scale,"  # pragma: no mutate
+    " t.description, t.amount_minor"  # pragma: no mutate
+    " FROM transactions t JOIN accounts a ON a.id = t.account_id"  # pragma: no mutate
+)
 
 
 @dataclass(frozen=True)
@@ -271,6 +296,21 @@ class Store:
             (account.id,),
         ).fetchone()
         return int(row[0])
+
+    def entries(self) -> Iterator[Entry]:
+        """Every transaction, oldest first; only reads, so it never waits on a writer (ADR 0005)."""
+        for row in self._connection.execute(
+            f"{_ENTRIES} ORDER BY t.date, t.id"
+        ):  # pragma: no mutate
+            yield Entry(*row)
+
+    def entry(self, transaction_id: int) -> Entry | None:
+        """One transaction by its id, or None when there is none."""
+        row = self._connection.execute(
+            f"{_ENTRIES} WHERE t.id = ?",  # pragma: no mutate
+            (transaction_id,),
+        ).fetchone()
+        return Entry(*row) if row else None
 
     def import_transactions(
         self, account: Account, file: str, outcomes: Iterable[Transaction | Unreadable]

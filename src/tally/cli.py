@@ -9,6 +9,7 @@ when another copy of Tally holds the data file.
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import logging
 import os
@@ -23,9 +24,19 @@ from tally import __version__
 from tally.config import Config, ConfigError, data_dir_for, load_config
 from tally.importers import NotAStatementError, kind, ofx
 from tally.importers.csv_layout import Layout, read
-from tally.store import LockedError, RefusedError, Store
+from tally.rules import Match, categorise
+from tally.rules import load as load_rules
+from tally.store import Entry, LockedError, RefusedError, Store
 
 UNREADABLE_LINES_SHOWN = 50
+ENTRY_FIELDS = ("id", "date", "account", "amount", "currency", "description")
+# What a terminal would act on rather than show (AC38): C0 controls become their control
+# pictures (ESC is ␛), DEL is ␡, and every other control, format character (the bidi
+# overrides), unassigned code point or line separator is "?".
+_PICTURES = {chr(code): chr(0x2400 + code) for code in range(0x20)} | {"\x7f": "␡"}
+_HIDDEN = frozenset({"Cc", "Cf", "Cs", "Co", "Cn", "Zl", "Zp"})
+# A CSV text cell starting with one of these runs as a formula in a spreadsheet.
+_FORMULA = ("=", "+", "-", "@", "\t", "\r")
 
 
 # Every parser: no abbreviated options, or every accepted prefix is part of the command line.
@@ -48,6 +59,20 @@ def account_name(text: str) -> str:
     if any(unicodedata.category(c).startswith("C") for c in name):
         raise argparse.ArgumentTypeError("must not contain control characters or line breaks")
     return name
+
+
+def transaction_id(text: str) -> int:
+    # ASCII digits, never int() alone: it reads " 4", "4_0" and Arabic-Indic digits too.
+    if not (text.isascii() and text.isdigit() and len(text) <= 19) or int(text) >= 2**63:
+        raise argparse.ArgumentTypeError("not a transaction id")
+    return int(text)
+
+
+def printable(text: str) -> str:
+    """The text with every control character replaced, so a terminal shows it and runs none."""
+    return "".join(
+        _PICTURES.get(c) or ("?" if unicodedata.category(c) in _HIDDEN else c) for c in text
+    )
 
 
 def currency_code(text: str) -> str:
@@ -109,6 +134,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--verbose", action="store_true", help="say what is being read, on standard error"
     )
     importing.set_defaults(run=import_run)
+
+    unmatched = commands.add_parser(
+        "uncategorised", parents=[common], **STRICT, help="list the transactions no rule matched"
+    )
+    unmatched.add_argument("--format", choices=["table", "csv", "json"], default="table")
+    unmatched.set_defaults(run=uncategorised)
+    explain = commands.add_parser(
+        "explain", parents=[common], **STRICT, help="say why a transaction got its category"
+    )
+    explain.add_argument("id", type=transaction_id, help="the transaction's id, as listed")
+    explain.add_argument("--format", choices=["table", "json"], default="table")
+    explain.set_defaults(run=explain_run)
     return parser
 
 
@@ -232,6 +269,93 @@ def _import(args: argparse.Namespace, config: Config) -> int:
     return EXIT_OK
 
 
+def _fields(entry: Entry) -> dict[str, object]:
+    """A transaction as JSON holds it: the original text, the amount a string with its places."""
+    return {
+        "id": entry.id,
+        "date": entry.date,
+        "account": entry.account,
+        "amount": str(entry.amount),
+        "currency": entry.currency,
+        "description": entry.description,
+    }
+
+
+def _line(entry: Entry) -> str:
+    """A transaction as the terminal shows it; the description last, so no width is needed."""
+    return printable(
+        f"{entry.id}  {entry.date}  {entry.account}"
+        f"  {entry.amount} {entry.currency}  {entry.description}"
+    )
+
+
+def _cell(text: str) -> str:
+    """A CSV text cell: replaced as on the terminal, and quoted so a spreadsheet never runs it."""
+    shown = printable(text)
+    return f"'{shown}" if shown.startswith(_FORMULA) else shown
+
+
+def uncategorised(args: argparse.Namespace, config: Config) -> int:
+    """Every transaction no rule matches (AC27), the rules read before the data file (AC29)."""
+    rules = load_rules(config.rules)
+    with open_store(args, config) as store:
+        # Collected before printing, so a data file that fails part way prints nothing (AC34).
+        found = [e for e in store.entries() if not isinstance(categorise(e, rules), Match)]
+    if args.format == "json":
+        print(json.dumps([_fields(e) for e in found]))
+    elif args.format == "csv":
+        writer = csv.writer(sys.stdout)
+        writer.writerow(ENTRY_FIELDS)
+        writer.writerows(
+            [
+                e.id,
+                _cell(e.date),
+                _cell(e.account),
+                e.amount,
+                _cell(e.currency),
+                _cell(e.description),
+            ]
+            for e in found
+        )
+    else:
+        for e in found:
+            print(_line(e))
+    return EXIT_OK
+
+
+def explain_run(args: argparse.Namespace, config: Config) -> int:
+    """Why one transaction has its category: each rule tried and what it found (AC28)."""
+    rules = load_rules(config.rules)
+    with open_store(args, config) as store:
+        entry = store.entry(args.id)
+    if entry is None:
+        raise RefusedError(f"no transaction {args.id}")
+    result = categorise(entry, rules)
+    if args.format == "json":
+        tried = [
+            {
+                "rule": v.rule.position,
+                "name": v.rule.name,
+                "matched": v.matched,
+                "conditions": list(v.conditions),
+            }
+            for v in result.verdicts
+        ]
+        category = result.rule.name if isinstance(result, Match) else None
+        print(json.dumps({**_fields(entry), "category": category, "rules": tried}))
+        return EXIT_OK
+    print(_line(entry))
+    if isinstance(result, Match):
+        print(printable(f"category {result.rule.name}, from rule {result.rule.position}"))
+    else:
+        print("no rule matched")
+    for v in result.verdicts:
+        said = " and ".join(v.conditions) or "it has no conditions"
+        verb = "matched" if v.matched else "did not match"
+        print(printable(f"rule {v.rule.position} {v.rule.name} {verb}: {said}"))
+    return EXIT_OK
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the command line and return the exit code."""
     parser = build_parser()
@@ -242,8 +366,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         config = load_config(args.config)
         code: int = args.run(args, config)
-    except ConfigError as error:
-        print(error, file=sys.stderr)
+    except ConfigError as error:  # it can quote the file's own keys, which may hold controls
+        print(printable(str(error)), file=sys.stderr)
         return EXIT_USAGE
     except (RefusedError, NotAStatementError, sqlite3.Error) as error:
         failed = isinstance(error, sqlite3.Error)  # a damaged file, a full disk: no data in it
