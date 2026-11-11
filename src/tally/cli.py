@@ -46,6 +46,7 @@ _MONTH = re.compile(r"[0-9]{4}-(?:0[1-9]|1[0-2])")
 _TOP = re.compile(r"[1-9][0-9]{0,2}|1000")
 REPORT_FIELDS = ("month", "currency", "category", "income", "spending", "net")
 PAYEE_FIELDS = ("currency", "description", "total", "count")
+_WIDEST = 60  # a description in the payees table; the CSV and JSON keep it whole
 # The only escape sequences Tally writes: red, and back to normal (AC33).
 _RED = f"{chr(0x1B)}[31m"
 _RESET = f"{chr(0x1B)}[0m"
@@ -412,6 +413,11 @@ def _period(args: argparse.Namespace) -> tuple[str, str]:
     return args.first, args.last
 
 
+def _shortened(text: str) -> str:
+    """At most 60 characters, so one hostile description cannot widen every line it pads."""
+    return text if len(text) <= _WIDEST else text[: _WIDEST - 1] + "…"
+
+
 def _print_sections(sections: Sequence[Sequence[str]]) -> None:
     """Each section's lines (made printable by ``_section``), a blank line between sections."""
     print("\n\n".join("\n".join(s) for s in sections), end="")
@@ -499,7 +505,7 @@ def payees_run(args: argparse.Namespace, config: Config) -> int:
             _section(
                 currency,
                 ("description", "total", "count"),
-                [[p.description, str(p.total), str(p.count)] for p in group],
+                [[_shortened(p.description), str(p.total), str(p.count)] for p in group],
             )
             for currency, group in groupby(found, key=lambda p: p.currency)
         ]

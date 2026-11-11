@@ -478,3 +478,19 @@ def test_the_installed_command_reports_and_refuses(
     month = tally("report", "--month", "2026-13")
     assert (month.returncode, month.stdout) == (2, "")
     assert "argument --month: not a month like 2026-10" in month.stderr
+
+
+def test_ac31_a_huge_description_costs_its_own_line_not_every_line(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    place = samples(tmp_path, capsys)
+    add(place, "current", ("2026-10-09", "X" * 1_000_000, -999900))
+    code, out, _ = place.run("payees", *OCTOBER, "--top", "1000")
+    assert code == 0
+    assert len(out) < 2_000  # was 3,000,000: every line padded to the widest description
+    assert f"{'X' * 59}…  -9999.00      1\n" in out
+    assert as_json(place, "payees", *OCTOBER)[2]["description"] == "X" * 1_000_000
+    add(place, "savings", ("2026-10-09", "Y" * 60, -1), ("2026-10-09", "Z" * 61, -1))
+    _, out, _ = place.run("payees", *OCTOBER, "--top", "1000")
+    assert f"\n{'Y' * 60}  " in out
+    assert f"\n{'Z' * 59}…  " in out
